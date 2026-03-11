@@ -1,0 +1,99 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:googleapis_auth/auth_io.dart';
+import 'package:googleapis/calendar/v3.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'auth_manager.dart';
+import 'secrets.dart';
+
+class AuthManagerDesktop implements AuthManager {
+  AutoRefreshingAuthClient? _client;
+  
+  static const _scopes = [CalendarApi.calendarScope];
+
+  Future<File> _getCredentialsFile() async {
+    final directory = await getApplicationDocumentsDirectory();
+    return File('${directory.path}/credentials.json');
+  }
+
+  @override
+  Future<http.Client> getAuthenticatedClient() async {
+    if (_client != null) return _client!;
+
+    try {
+      final file = await _getCredentialsFile();
+      if (await file.exists()) {
+        final jsonString = await file.readAsString();
+        final credentials = AccessCredentials.fromJson(jsonDecode(jsonString));
+        
+        // Check if token needs refresh
+        if (credentials.accessToken.hasExpired) {
+             // autoRefreshingClient handles refresh automatically if refresh token is present
+             // but we need to ensure we re-save it if it changes.
+             // For simplicity, we just use autoRefreshingClient with a save callback?
+             // Actually, usually we just create the client.
+        }
+
+        final clientId = ClientId(Secrets.desktopClientId, Secrets.desktopClientSecret);
+        _client = autoRefreshingClient(clientId, credentials, http.Client());
+        
+        // Verify it works (sometimes tokens are revoked)
+        // If it throws, we fall back to full login
+        return _client!; 
+      }
+    } catch (e) {
+      print("Failed to load credentials: $e. Initiating full login.");
+    }
+    
+    // Fallback: Full Login
+    // Desktop Auth Flow: Loopback
+    // Note: User must provide a Client ID configured for "Desktop" (native) or "Other" in Google Cloud Console.
+    final clientId = ClientId(Secrets.desktopClientId, Secrets.desktopClientSecret);
+    
+    _client = await clientViaUserConsent(
+      clientId,
+      _scopes,
+      (url) async {
+        if (await canLaunchUrl(Uri.parse(url))) {
+          await launchUrl(Uri.parse(url));
+        } else {
+          print("Please go to the following URL and grant access:");
+          print("  => $url");
+          print("");
+        }
+      },
+    );
+
+    // Save Credentials
+    try {
+      final file = await _getCredentialsFile();
+      await file.writeAsString(jsonEncode(_client!.credentials.toJson()));
+    } catch (e) {
+      print("Failed to save credentials: $e");
+    }
+    
+    return _client!;
+  }
+
+  @override
+  Future<CalendarApi> getCalendarApi() async {
+    final client = await getAuthenticatedClient();
+    return CalendarApi(client);
+  }
+
+  @override
+  Future<void> signOut() async {
+    _client?.close();
+    _client = null;
+    try {
+      final file = await _getCredentialsFile();
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (e) {
+        // Ignore
+    }
+  }
+}

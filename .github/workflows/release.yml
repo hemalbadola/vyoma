@@ -1,0 +1,46 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+        include:
+          - os: macos-latest
+            build_target: macos
+            artifact_path: build/macos/Build/Products/Release
+            asset_name: vira-macos.zip
+          - os: windows-latest
+            build_target: windows
+            artifact_path: build/windows/x64/runner/Release
+            asset_name: vira-windows.zip
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Build App
+        run: flutter build ${{ matrix.build_target }} --release
+
+      # Optional: Copy dlls for Windows if needed (Flutter does this mostly automatically now)
+      
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vira-build-${{ matrix.build_target }}
+          path: ${{ matrix.artifact_path }}
