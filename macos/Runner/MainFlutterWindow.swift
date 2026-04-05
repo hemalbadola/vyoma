@@ -8,8 +8,11 @@ class MainFlutterWindow: NSWindow {
     self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: true)
 
+    // System-wide disable of spelling and autocorrect for Flutter views
+    NSSpellChecker.shared.automaticallyIdentifiesLanguages = false
+    
     RegisterGeneratedPlugins(registry: flutterViewController)
-
+    
     super.awakeFromNib()
   }
 }

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:intl/intl.dart';
 import '../../core/memory_service.dart';
 import '../widgets/glass_card.dart';
@@ -137,7 +136,7 @@ class MemoryVaultScreen extends StatelessWidget {
                   Switch(
                     value: isEnabled,
                     onChanged: (val) => memory.toggleSegment(segment, val),
-                    activeColor: const Color(0xFF7C3AED),
+                    activeThumbColor: const Color(0xFF7C3AED),
                     inactiveTrackColor: Colors.white12,
                   ),
                 ],
@@ -169,6 +168,7 @@ class MemoryVaultScreen extends StatelessWidget {
 
   Widget _buildHistorySlab(BuildContext context, MemoryService memory) {
     final logs = memory.getAllLogs(); // This is reversed in our service method
+    final recentLogs = logs.take(5).toList();
     
     if (logs.isEmpty) {
       return GlassCard(
@@ -179,7 +179,7 @@ class MemoryVaultScreen extends StatelessWidget {
 
     return Column(
       children: [
-        ...logs.take(5).toList().asMap().entries.map((entry) {
+        ...recentLogs.asMap().entries.map((entry) {
             final index = entry.key;
             final log = entry.value;
             // Note: Indexing for delete needs to match the REAL list. 
@@ -209,7 +209,7 @@ class MemoryVaultScreen extends StatelessWidget {
                         child: Text(log.actionType, style: GoogleFonts.inter(color: Colors.white, fontSize: 14)),
                       ),
                       Text(
-                        "${log.outcome}",
+                        log.outcome,
                         style: GoogleFonts.jetBrainsMono(color: log.outcome == 'Success' ? Colors.greenAccent : Colors.redAccent, fontSize: 10),
                       ),
                     ],
@@ -217,7 +217,7 @@ class MemoryVaultScreen extends StatelessWidget {
                 ),
               ),
             );
-        }).toList(),
+        }),
         if (logs.length > 5)
            Center(child: Text("+ ${logs.length - 5} MORE ARCHIVED", style: GoogleFonts.jetBrainsMono(color: Colors.white24, fontSize: 10))),
       ],
@@ -324,6 +324,13 @@ class MemoryVaultScreen extends StatelessWidget {
         title: Text("EDIT $label", style: GoogleFonts.dmSans(color: Colors.white)),
         content: TextField(
           controller: controller,
+          autocorrect: false,
+          enableSuggestions: false,
+          smartDashesType: SmartDashesType.disabled,
+          smartQuotesType: SmartQuotesType.disabled,
+          keyboardType: TextInputType.visiblePassword,
+          obscureText: false,
+          spellCheckConfiguration: SpellCheckConfiguration.disabled(),
           style: const TextStyle(color: Colors.white),
           decoration: const InputDecoration(
             enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),

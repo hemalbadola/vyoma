@@ -1,17 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../core/memory_service.dart';
 import '../core/permission_manager.dart';
 import '../core/wakeup_service.dart';
-import '../core/ai_service.dart'; // Add AIService import
 import 'screens/wakeup_screen.dart';
 import 'tabs/mission_tab.dart';
 import 'tabs/intel_tab.dart';
+import 'tabs/timetable_tab.dart'; // Added
 import 'widgets/chat_sheet.dart';
 import 'widgets/command_dock.dart';
 import 'widgets/background_mesh.dart';
 import 'widgets/api_key_manager.dart';
+import 'widgets/vault_journal_view.dart';
+import 'screens/notifications_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -26,6 +27,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final List<Widget> _tabs = [
     const MissionTab(),
     const IntelTab(),
+    const VaultJournalView(), // Tab Index 2
+    const TimetableTab(), // Tab Index 3
   ];
 
   @override
@@ -89,7 +92,15 @@ class _HomeScreenState extends State<HomeScreen> {
           const BackgroundMesh(),
 
           // 1. Tab Content
-          _tabs[_currentIndex],
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 250),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            child: KeyedSubtree(
+              key: ValueKey(_currentIndex),
+              child: _tabs[_currentIndex],
+            ),
+          ),
 
           // 2. Floating Command Dock
           CommandDock(
@@ -98,26 +109,106 @@ class _HomeScreenState extends State<HomeScreen> {
             onCommand: () => _showComms(context),
           ),
           
-          // 3. Debug Button (Top Right)
+          // 3. Utility Rail (Top Right)
           Positioned(
-            top: 50,
+            top: 16,
             right: 16,
-            child: FloatingActionButton(
-              mini: true,
-              backgroundColor: Colors.white24,
-              child: const Icon(Icons.bug_report, color: Colors.cyanAccent),
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (_) => const Dialog(
-                    backgroundColor: Colors.transparent,
-                    child: ApiKeyManager(),
-                  ),
-                );
-              },
+            child: SafeArea(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF101114),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFF2A2A2A), width: 0.8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.35),
+                      blurRadius: 14,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    _UtilityButton(
+                      icon: Icons.notifications_active_outlined,
+                      tooltip: 'Notifications',
+                      color: Colors.orangeAccent,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 6),
+                    _UtilityButton(
+                      icon: Icons.bug_report_rounded,
+                      tooltip: 'API Key Manager',
+                      color: Colors.cyanAccent,
+                      onTap: () {
+                        showDialog(
+                          context: context,
+                          builder: (_) => const Dialog(
+                            backgroundColor: Colors.transparent,
+                            child: ApiKeyManager(),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _UtilityButton extends StatefulWidget {
+  final IconData icon;
+  final String tooltip;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _UtilityButton({
+    required this.icon,
+    required this.tooltip,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  State<_UtilityButton> createState() => _UtilityButtonState();
+}
+
+class _UtilityButtonState extends State<_UtilityButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: _hovered
+                  ? Colors.white.withValues(alpha: 0.12)
+                  : Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(widget.icon, color: widget.color, size: 18),
+          ),
+        ),
       ),
     );
   }

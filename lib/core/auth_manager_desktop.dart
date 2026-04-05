@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:googleapis_auth/auth_io.dart';
 import 'package:googleapis/calendar/v3.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -44,7 +45,7 @@ class AuthManagerDesktop implements AuthManager {
         return _client!; 
       }
     } catch (e) {
-      print("Failed to load credentials: $e. Initiating full login.");
+      debugPrint("Failed to load credentials: $e. Initiating full login.");
     }
     
     // Fallback: Full Login
@@ -59,9 +60,9 @@ class AuthManagerDesktop implements AuthManager {
         if (await canLaunchUrl(Uri.parse(url))) {
           await launchUrl(Uri.parse(url));
         } else {
-          print("Please go to the following URL and grant access:");
-          print("  => $url");
-          print("");
+          debugPrint("Please go to the following URL and grant access:");
+          debugPrint("  => $url");
+          debugPrint("");
         }
       },
     );
@@ -71,7 +72,7 @@ class AuthManagerDesktop implements AuthManager {
       final file = await _getCredentialsFile();
       await file.writeAsString(jsonEncode(_client!.credentials.toJson()));
     } catch (e) {
-      print("Failed to save credentials: $e");
+      debugPrint("Failed to save credentials: $e");
     }
     
     return _client!;

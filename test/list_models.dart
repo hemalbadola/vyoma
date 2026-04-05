@@ -1,11 +1,10 @@
 import 'dart:io';
-import 'package:google_generative_ai/google_generative_ai.dart';
-import '../lib/core/secrets.dart';
+import 'package:vyoma/core/secrets.dart'; // package import instead of relative
 
 void main() async {
   final apiKey = Secrets.geminiApiKeys.first; // Use the first key
-  final model = GenerativeModel(model: 'gemini-pro', apiKey: apiKey);
-
+  
+  // ignore: avoid_print
   print('Using API Key: ${apiKey.substring(0, 5)}...');
 
   try {
@@ -25,10 +24,13 @@ void main() async {
     
     final responseBody = await response.transform(SystemEncoding().decoder).join();
     
+    // ignore: avoid_print
     print('Response Status: ${response.statusCode}');
+    // ignore: avoid_print
     print(responseBody);
     
   } catch (e) {
+    // ignore: avoid_print
     print('Error: $e');
   }
 }

@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "Vyomaadra" "\0"
-            VALUE "FileDescription", "Vyomaadra - Extract Meaning" "\0"
+            VALUE "CompanyName", "Vyoma" "\0"
+            VALUE "FileDescription", "Vyoma - Extract Meaning" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "vyomaadra" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 Vyomaadra. All rights reserved." "\0"
-            VALUE "OriginalFilename", "vyomaadra.exe" "\0"
-            VALUE "ProductName", "Vyomaadra" "\0"
+            VALUE "InternalName", "vyoma" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Vyoma. All rights reserved." "\0"
+            VALUE "OriginalFilename", "vyoma.exe" "\0"
+            VALUE "ProductName", "Vyoma" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

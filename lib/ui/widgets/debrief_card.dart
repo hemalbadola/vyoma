@@ -27,17 +27,21 @@ class DebriefCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                "MISSION DEBRIEF",
-                style: GoogleFonts.jetBrainsMono(
-                  color: const Color(0xFF8E8E93),
-                  fontSize: 10,
-                  letterSpacing: 2,
-                  fontWeight: FontWeight.bold,
+              Expanded(
+                child: Text(
+                  "MISSION DEBRIEF",
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.jetBrainsMono(
+                    color: const Color(0xFF8E8E93),
+                    fontSize: 10,
+                    letterSpacing: 2,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
+              const SizedBox(width: 8),
               const Icon(Icons.history_edu, color: Colors.white54, size: 16),
             ],
           ),

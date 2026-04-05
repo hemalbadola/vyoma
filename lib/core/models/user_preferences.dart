@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 /// User preferences for Vyoma's proactive intelligence features.
 /// All settings are customizable by the user.
 class UserPreferences {

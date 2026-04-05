@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart'; // Add font import
+import 'package:shared_preferences/shared_preferences.dart';
 import 'core/auth_manager.dart';
-import 'core/auth_manager_desktop.dart';
 import 'core/calendar_service.dart';
 import 'core/ai_service.dart';
-import 'core/memory_service.dart'; // Added
+import 'core/memory_service.dart'; 
+import 'core/timetable_service.dart'; // Added
+import 'core/notification_service.dart';
 import 'ui/war_room_viewmodel.dart';
-import 'ui/home_screen.dart'; // New Import
-import 'ui/onboarding_screen.dart'; // Added
+import 'ui/home_screen.dart'; 
+import 'ui/onboarding_screen.dart';
 
 void main() {
   ErrorWidget.builder = (FlutterErrorDetails details) {
@@ -40,7 +43,7 @@ class VyomaApp extends StatelessWidget {
       providers: [
         // 1. Auth (Singleton Factory)
         Provider<AuthManager>(
-          create: (_) => AuthManagerDesktop(), // Changed to AuthManagerDesktop
+          create: (_) => AuthManager(),
         ),
         
         // 2. Services (Dependent on Auth or Standalone)
@@ -51,19 +54,32 @@ class VyomaApp extends StatelessWidget {
            create: (context) => AIService(Provider.of<MemoryService>(context, listen: false)),
         ),
         ProxyProvider<AuthManager, CalendarService>(
-          update: (_, auth, __) => CalendarService(auth),
+          update: (_, auth, previous) => previous ?? CalendarService(auth),
+        ),
+        Provider<NotificationService>(
+          create: (_) => NotificationService(),
+        ),
+        ChangeNotifierProxyProvider<CalendarService, TimetableService>(
+          create: (context) => TimetableService(Provider.of<CalendarService>(context, listen: false)),
+          update: (_, calendar, previous) => previous ?? TimetableService(calendar),
         ),
 
         // 3. ViewModels (Dependent on Services)
-        ChangeNotifierProxyProvider2<CalendarService, AIService, WarRoomViewModel>(
+        ChangeNotifierProxyProvider4<CalendarService, AIService, TimetableService, NotificationService, WarRoomViewModel>(
           create: (context) => WarRoomViewModel(
             calendarService: Provider.of<CalendarService>(context, listen: false),
             aiService: Provider.of<AIService>(context, listen: false),
+            timetableService: Provider.of<TimetableService>(context, listen: false),
+            notificationService: Provider.of<NotificationService>(context, listen: false),
           ),
-          update: (_, calendar, ai, previous) => WarRoomViewModel(
-            calendarService: calendar,
-            aiService: ai,
-          ),
+          // Keep a stable VM instance; recreating it causes repeated session reloads.
+          update: (_, calendar, ai, timetable, notifications, previous) =>
+              previous ?? WarRoomViewModel(
+                calendarService: calendar,
+                aiService: ai,
+                timetableService: timetable,
+                notificationService: notifications,
+              ),
         ),
       ],
       child: Consumer<MemoryService>(
@@ -92,6 +108,7 @@ class VyomaApp extends StatelessWidget {
                   if (child != null) child,
                   
                   // Global Debug Status Panel
+                  if (kDebugMode)
                   Positioned(
                     bottom: 120, 
                     right: 20,
@@ -106,12 +123,12 @@ class VyomaApp extends StatelessWidget {
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                               decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.85),
+                                color: Colors.black.withValues(alpha: 0.85),
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(color: Colors.white12),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.black.withOpacity(0.5),
+                                    color: Colors.black.withValues(alpha: 0.5),
                                     blurRadius: 8,
                                     offset: const Offset(0, 4),
                                   )
@@ -139,10 +156,42 @@ class VyomaApp extends StatelessWidget {
                 ],
               );
             },
-            home: memory.hasOnboarded ? const HomeScreen() : const OnboardingScreen(),
+            home: const _LaunchGate(),
           );
         },
       ),
     );
+  }
+}
+
+class _LaunchGate extends StatefulWidget {
+  const _LaunchGate();
+
+  @override
+  State<_LaunchGate> createState() => _LaunchGateState();
+}
+
+class _LaunchGateState extends State<_LaunchGate> {
+  bool? _onboardingComplete;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadOnboardingFlag();
+  }
+
+  Future<void> _loadOnboardingFlag() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_onboardingComplete == null) {
+      return const Scaffold(backgroundColor: Colors.black);
+    }
+    return _onboardingComplete! ? const HomeScreen() : const OnboardingScreen();
   }
 }

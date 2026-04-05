@@ -61,16 +61,21 @@ class ApiKeyManager extends StatelessWidget {
                   ),
                   itemCount: Secrets.geminiApiKeys.length,
                   itemBuilder: (context, index) {
-                    final key = Secrets.geminiApiKeys[index];
                     final isActive = aiService.currentGeminiIndex == index;
                     final status = aiService.keyStates[index] ?? "UNK";
                     
                     Color statusColor = Colors.grey;
-                    if (status == "OK") statusColor = Colors.greenAccent;
-                    else if (status == "429") statusColor = Colors.orangeAccent;
-                    else if (status == "EXPIRED") statusColor = Colors.redAccent;
-                    else if (status == "TIMEOUT") statusColor = Colors.yellowAccent;
-                    else if (status == "ERR") statusColor = Colors.red;
+                    if (status == "OK") {
+                      statusColor = Colors.greenAccent;
+                    } else if (status == "429") {
+                      statusColor = Colors.orangeAccent;
+                    } else if (status == "EXPIRED") {
+                      statusColor = Colors.redAccent;
+                    } else if (status == "TIMEOUT") {
+                      statusColor = Colors.yellowAccent;
+                    } else if (status == "ERR") {
+                      statusColor = Colors.red;
+                    }
 
                     return InkWell(
                       onTap: () {
@@ -84,9 +89,9 @@ class ApiKeyManager extends StatelessWidget {
                       },
                       child: Container(
                         decoration: BoxDecoration(
-                          color: isActive ? Colors.cyan.withOpacity(0.2) : Colors.black45,
+                          color: isActive ? Colors.cyan.withValues(alpha: 0.2) : Colors.black45,
                           border: Border.all(
-                            color: isActive ? Colors.cyanAccent : statusColor.withOpacity(0.5),
+                            color: isActive ? Colors.cyanAccent : statusColor.withValues(alpha: 0.5),
                             width: isActive ? 2 : 1,
                           ),
                           borderRadius: BorderRadius.circular(8),
@@ -106,7 +111,7 @@ class ApiKeyManager extends StatelessWidget {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                               decoration: BoxDecoration(
-                                color: statusColor.withOpacity(0.2),
+                                color: statusColor.withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
