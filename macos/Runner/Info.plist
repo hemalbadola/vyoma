@@ -29,6 +29,12 @@
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Vira needs to check your active window to ensure you are staying on task.</string>
+	<string>Vyoma needs to check your active window to ensure you are staying on task.</string>
+	<key>NSSpellCheckerAutomaticallyIdentifiesLanguages</key>
+	<false/>
+	<key>NSAutomaticSpellingCorrectionEnabled</key>
+	<false/>
+	<key>NSAutomaticTextReplacementEnabled</key>
+	<false/>
 </dict>
 </plist>

@@ -22,8 +22,8 @@ class BackgroundMesh extends StatelessWidget {
                 shape: BoxShape.circle,
                 gradient: RadialGradient(
                   colors: [
-                    const Color(0xFF059669).withOpacity(0.04),
-                    const Color(0xFF059669).withOpacity(0.01),
+                    const Color(0xFF059669).withValues(alpha: 0.04),
+                    const Color(0xFF059669).withValues(alpha: 0.01),
                     Colors.transparent,
                   ],
                   stops: const [0.0, 0.4, 1.0],
@@ -44,8 +44,8 @@ class BackgroundMesh extends StatelessWidget {
                 shape: BoxShape.circle,
                 gradient: RadialGradient(
                   colors: [
-                    const Color(0xFF8B0A1A).withOpacity(0.03),
-                    const Color(0xFF8B0A1A).withOpacity(0.008),
+                    const Color(0xFF8B0A1A).withValues(alpha: 0.03),
+                    const Color(0xFF8B0A1A).withValues(alpha: 0.008),
                     Colors.transparent,
                   ],
                   stops: const [0.0, 0.4, 1.0],

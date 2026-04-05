@@ -149,7 +149,16 @@ class _WakeupScreenState extends State<WakeupScreen> {
                         const SizedBox(height: 24),
                         TextField(
                           controller: _controller,
-                          style: GoogleFonts.jetBrainsMono(color: Colors.white, fontSize: 24),
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          smartDashesType: SmartDashesType.disabled,
+                          smartQuotesType: SmartQuotesType.disabled,
+                          // visiblePassword prevents NSSpellServer from registering
+                          // even with autofocus=true; obscureText=false keeps text visible
+                          keyboardType: _isMathChallenge ? TextInputType.number : TextInputType.visiblePassword,
+                          obscureText: false,
+                          spellCheckConfiguration: SpellCheckConfiguration.disabled(),
+                          style: GoogleFonts.inter(color: Colors.white, fontSize: 16),
                           textAlign: TextAlign.center,
                           decoration: InputDecoration(
                             hintText: "ENTER ANSWER",
@@ -160,7 +169,6 @@ class _WakeupScreenState extends State<WakeupScreen> {
                           ),
                           onChanged: _checkAnswer,
                           autofocus: true,
-                          keyboardType: _isMathChallenge ? TextInputType.number : TextInputType.text,
                         ),
                       ],
                     ),

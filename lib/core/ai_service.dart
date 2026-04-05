@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
+import 'dart:io';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
@@ -8,7 +8,7 @@ import 'memory_service.dart';
 import 'models/static_context.dart';
 import 'secrets.dart';
 import 'supermemory_service.dart';
-import 'sentinel_service.dart' show AlertType;
+import 'models/timetable.dart';
 
 // --- DATA MODELS ---
 
@@ -69,11 +69,14 @@ class MetricDelta {
 }
 
 class AIResponseAction {
-  final String type; // create, move, delete, none
+  final String type; // create, move, delete, update_timetable, notify, none
   final String? summary;
   final String? startTime;
   final int? durationMinutes;
   final String? recurrence;
+  final String? message;
+  final String? notifyAt;
+  final List<TimetableSlot>? slots;
 
   AIResponseAction({
     required this.type, 
@@ -81,15 +84,61 @@ class AIResponseAction {
     this.startTime, 
     this.durationMinutes,
     this.recurrence,
+    this.message,
+    this.notifyAt,
+    this.slots,
   });
 
+  static String _normalizeActionType(String raw) {
+    final t = raw.trim().toLowerCase();
+    switch (t) {
+      case 'schedule':
+      case 'add_event':
+      case 'addevent':
+      case 'create_event':
+        return 'create';
+      case 'reminder':
+        return 'notify';
+      case 'update-timetable':
+        return 'update_timetable';
+      default:
+        return t.isEmpty ? 'none' : t;
+    }
+  }
+
+  static String _inferActionType(Map<String, dynamic> json) {
+    final normalized = _normalizeActionType((json['type'] ?? json['action'] ?? '').toString());
+    if (normalized != 'none') return normalized;
+
+    if (json['slots'] is List) return 'update_timetable';
+    if (json['notifyAt'] != null || json['notify_at'] != null || json['message'] != null) return 'notify';
+    if (json['new_time'] != null || json['time'] != null) return 'move';
+
+    final desc = (json['description'] ?? '').toString().toLowerCase();
+    if (RegExp(r'\b(reschedule|move|shift)\b').hasMatch(desc)) return 'move';
+    if (RegExp(r'\b(schedule|create|add)\b').hasMatch(desc)) return 'create';
+    if (RegExp(r'\b(delete|remove|cancel)\b').hasMatch(desc)) return 'delete';
+
+    return 'none';
+  }
+
   factory AIResponseAction.fromJson(Map<String, dynamic> json) {
+    List<TimetableSlot>? parsedSlots;
+    if (json['slots'] != null && json['slots'] is List) {
+      parsedSlots = (json['slots'] as List).map((e) => TimetableSlot.fromJson(e)).toList();
+    }
+  
     return AIResponseAction(
-      type: json['type'] ?? 'none',
-      summary: json['summary'],
-      startTime: json['startTime'],
-      durationMinutes: json['durationMinutes'],
-      recurrence: json['recurrence'],
+      type: _inferActionType(json),
+      summary: (json['summary'] ?? json['subject'] ?? json['title'] ?? json['name'] ?? json['event'])?.toString(),
+      startTime: (json['startTime'] ?? json['start_time'] ?? json['start'] ?? json['new_time'] ?? json['time'])?.toString(),
+      durationMinutes: json['durationMinutes'] is int
+          ? json['durationMinutes'] as int
+          : int.tryParse((json['durationMinutes'] ?? json['duration_minutes'] ?? '').toString()),
+      recurrence: (json['recurrence'] ?? json['rrule'])?.toString(),
+      message: (json['message'] ?? json['body'])?.toString(),
+      notifyAt: (json['notifyAt'] ?? json['notify_at'])?.toString(),
+      slots: parsedSlots,
     );
   }
 }
@@ -159,11 +208,16 @@ class AIResponse {
 // --- SERVICE ---
 
 class AIService with ChangeNotifier {
+  static const int _maxCalendarEventsInPrompt = 8;
+  static const int _maxRecentHistoryLogs = 4;
+  static const int _maxFactEntries = 16;
+  static const int _maxDeferredTasksInPrompt = 5;
+  static const int _maxTimelineEntriesInPrompt = 6;
+  static const int _maxTimelineTextLen = 90;
+  static const String _supermemoryMetaKey = 'supermemory_meta';
+
   GenerativeModel? _geminiModel;
-  int _geminiKeyIndex = 1; // Start from Key 1 to skip exhausted Key 0
-  int _openAiKeyIndex = 0;
-  int _openRouterKeyIndex = 0;
-  int _perplexityKeyIndex = 0;
+  int _geminiKeyIndex = 0;
   final MemoryService _memory;
   MemoryService get memory => _memory;
   
@@ -171,8 +225,7 @@ class AIService with ChangeNotifier {
   final Map<int, DateTime> _geminiKeyCooldowns = {};
   final Map<int, String> _keyStates = {}; // Track status: "Active", "Rate Limit", "Expired", "Error"
   final List<String> _logHistory = [];
-  
-  static const Duration _keyCooldownDuration = Duration.zero; // Disable long-term cooldowns
+
   int? _lastSuccessfulGeminiKeyIndex;
 
   // Getters for UI
@@ -200,12 +253,37 @@ class AIService with ChangeNotifier {
   );
   SupermemoryService get supermemory => _supermemory;
 
+  Map<String, dynamic> get supermemoryDiagnostics {
+    final d = _supermemory.diagnostics;
+    final meta = _memory.getSegment(_supermemoryMetaKey) as Map<String, dynamic>? ?? {};
+    return {
+      'lastHealthCheckAt': d.lastHealthCheckAt?.toIso8601String(),
+      'lastHealthStatusCode': d.lastHealthStatusCode,
+      'lastSaveAt': d.lastSaveAt?.toIso8601String(),
+      'lastSaveStatusCode': d.lastSaveStatusCode,
+      'lastSaveOk': d.lastSaveOk,
+      'lastRecallAt': d.lastRecallAt?.toIso8601String(),
+      'lastRecallStatusCode': d.lastRecallStatusCode,
+      'lastRecallResultCount': d.lastRecallResultCount,
+      'lastRecallTopScore': d.lastRecallTopScore,
+      'lastProfileAt': d.lastProfileAt?.toIso8601String(),
+      'lastProfileStatusCode': d.lastProfileStatusCode,
+      'saveSuccessCount': d.saveSuccessCount,
+      'saveFailureCount': d.saveFailureCount,
+      'recallSuccessCount': d.recallSuccessCount,
+      'recallFailureCount': d.recallFailureCount,
+      'lastError': d.lastError,
+      'lastBehaviorSyncAt': meta['last_behavior_sync_at']?.toString(),
+      'lastBehaviorSummaryHash': meta['last_behavior_summary_hash']?.toString(),
+    };
+  }
+
   // Debug Stream for UI
   final StreamController<String> _debugStatusController = StreamController<String>.broadcast();
   Stream<String> get debugStatusStream => _debugStatusController.stream;
 
   void _logDebug(String message) {
-    print("AIService: $message");
+    debugPrint("AIService: $message");
     _logHistory.add("${DateTime.now().toString().substring(11, 19)} $message");
     if (_logHistory.length > 50) _logHistory.removeAt(0); // Keep last 50
     _debugStatusController.add(message);
@@ -231,8 +309,16 @@ class AIService with ChangeNotifier {
     _initGemini();
   }
 
+  @visibleForTesting
+  AIResponse parseXmlForTest(String responseText) {
+    return _parseXmlResponse(responseText);
+  }
+
   void _initGemini() {
-    if (Secrets.geminiApiKeys.isEmpty) return; 
+    if (Secrets.geminiApiKeys.isEmpty) return;
+    if (_geminiKeyIndex >= Secrets.geminiApiKeys.length) {
+      _geminiKeyIndex = 0;
+    }
     final apiKey = Secrets.geminiApiKeys[_geminiKeyIndex];
     _geminiModel = GenerativeModel(
       model: 'gemini-2.5-flash',
@@ -243,238 +329,357 @@ class AIService with ChangeNotifier {
     );
   }
 
-  void _rotateGeminiKey() {
-    _geminiKeyIndex = (_geminiKeyIndex + 1) % Secrets.geminiApiKeys.length;
-    print("Gemini Key Exhausted. Rotating to Index: $_geminiKeyIndex");
-    _initGemini();
+  bool _isMetricManipulationAttempt(String text) {
+    final lower = text.toLowerCase();
+    final hasMetricWord =
+        lower.contains('focus') ||
+        lower.contains('distraction') ||
+        lower.contains('task') ||
+        lower.contains('score') ||
+        lower.contains('metrics');
+
+    final hasManipulationVerb =
+        lower.contains('set ') ||
+        lower.contains('reset') ||
+        lower.contains('increase') ||
+        lower.contains('decrease') ||
+        lower.contains('make it') ||
+        lower.contains('change ');
+
+    return hasMetricWord && hasManipulationVerb;
   }
 
-  /// Generate AI-enhanced proactive alert message
-  Future<String?> generateProactiveAlert(AlertType type, Map<String, dynamic> context) async {
-    if (_geminiModel == null) return null;
-    
-    String prompt = "";
-    
-    switch (type) {
-      case AlertType.morningBrief:
-        prompt = """You are Vyoma, a wise cosmic guide. Generate a contemplative morning brief.
-        
-Context:
-${context['content'] ?? 'No data available'}
 
-Rules:
-- Be warm and contemplative (3-5 lines max)
-- Use a nature/cosmic metaphor
-- Focus on the most important intention
-- Add wisdom, not just tasks
-- Use emoji sparingly for visual poetry
+  bool _needsCalendarActionSchema(String userText, List<Map<String, dynamic>> compactTimeline) {
+    final lower = userText.toLowerCase();
+    final explicit = RegExp(r'\b(schedule|plan|calendar|event|remind|reminder|notify|timetable|reschedule|delete|move|add|create|class|classes|slot)\b')
+        .hasMatch(lower);
+    if (explicit) return true;
 
-Respond with just the brief text, no JSON.""";
-        break;
-        
-      case AlertType.endOfDayReview:
-        prompt = """You are Vyoma, a wise cosmic guide. Generate a reflective end-of-day closing.
-        
-Context:
-${context['content'] ?? 'No data available'}
+    final confirmation = RegExp(r'\b(do it|go ahead|yes|yep|yeah|schedule them|add them|do that|please do)\b')
+        .hasMatch(lower);
+    if (!confirmation) return false;
 
-Rules:
-- Acknowledge what was accomplished with warmth
-- Be encouraging, like a setting sun
-- Suggest rest if needed
-- 3-4 lines max, poetic but grounded
-
-Respond with just the summary text, no JSON.""";
-        break;
-        
-      case AlertType.lateForEvent:
-        prompt = """Generate a brief, urgent reminder for being late to an event.
-Event: ${context['event_name'] ?? 'Meeting'}
-Minutes remaining: ${context['minutes'] ?? '?'}
-Be direct, 1-2 lines max. No JSON.""";
-        break;
-        
-      case AlertType.focusDrift:
-        prompt = """Generate a gentle but firm focus reminder.
-App: ${context['app'] ?? 'Distraction'}
-Minutes: ${context['minutes'] ?? '?'}
-Be encouraging, 1-2 lines. No JSON.""";
-        break;
-        
-      default:
-        return null;
+    for (final item in compactTimeline.reversed) {
+      final sender = (item['sender'] ?? '').toString().toUpperCase();
+      final text = (item['text'] ?? '').toString().toLowerCase();
+      if (sender != 'VYOMA') continue;
+      if (RegExp(r'\b(schedule|scheduled|calendar|event|class|classes|timetable|reminder)\b').hasMatch(text)) {
+        return true;
+      }
     }
-    
-    try {
-      final response = await _geminiModel!.generateContent([Content.text(prompt)]);
-      return response.text?.trim();
-    } catch (e) {
-      print("AIService: Proactive alert generation failed - $e");
-      return null;
-    }
+    return false;
   }
 
-  String _getSystemPrompt(ProductivityMetrics metrics) {
+  String _truncateText(String text, int maxLen) {
+    if (text.length <= maxLen) return text;
+    return '${text.substring(0, maxLen)}...';
+  }
+
+  String _buildBehaviorPatternSummary() {
+    final now = DateTime.now();
+    final from = now.subtract(const Duration(days: 14));
+
+    final logs = _memory
+        .getAllLogs()
+        .where((l) => l.timestamp.isAfter(from))
+        .toList();
+
+    final journal = _memory
+        .getJournalEntries(limit: 40)
+        .where((e) => e.timestamp.isAfter(from))
+        .toList();
+
+    final deferred = _memory.getDeferredTasks(includeCompleted: true, limit: 30);
+
+    if (logs.isEmpty && journal.isEmpty && deferred.isEmpty) {
+      return 'Insufficient longitudinal data yet.';
+    }
+
+    int success = 0;
+    int failure = 0;
+    final actionTypeCounts = <String, int>{};
+    for (final log in logs) {
+      if (log.outcome.toLowerCase() == 'success') {
+        success++;
+      } else {
+        failure++;
+      }
+      final key = log.actionType.trim().isEmpty ? 'unknown' : log.actionType.trim().toLowerCase();
+      actionTypeCounts[key] = (actionTypeCounts[key] ?? 0) + 1;
+    }
+
+    final sortedActions = actionTypeCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final topActions = sortedActions.take(3).map((e) => '${e.key}:${e.value}').join(', ');
+
+    final moodCounts = <String, int>{};
+    for (final entry in journal) {
+      final mood = entry.mood.trim().isEmpty ? 'neutral' : entry.mood.trim().toLowerCase();
+      moodCounts[mood] = (moodCounts[mood] ?? 0) + 1;
+    }
+    final sortedMoods = moodCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final topMood = sortedMoods.isNotEmpty ? sortedMoods.first.key : 'unknown';
+
+    int openDeferred = 0;
+    int startedDeferred = 0;
+    int completedDeferred = 0;
+    for (final task in deferred) {
+      switch (task.status) {
+        case DeferredTaskStatus.open:
+          openDeferred++;
+          break;
+        case DeferredTaskStatus.started:
+          startedDeferred++;
+          break;
+        case DeferredTaskStatus.completed:
+          completedDeferred++;
+          break;
+      }
+    }
+
+    final totalOutcomes = success + failure;
+    final successRate = totalOutcomes == 0 ? 0 : ((success * 100) / totalOutcomes).round();
+
+    return [
+      'Window: last 14 days',
+      'Execution: success=$success failure=$failure success_rate=$successRate%',
+      if (topActions.isNotEmpty) 'Frequent action types: $topActions',
+      if (journal.isNotEmpty) 'Journal trend: dominant_mood=$topMood entries=$journal.length',
+      'Deferred tasks: open=$openDeferred started=$startedDeferred completed=$completedDeferred',
+    ].join(' | ');
+  }
+
+  Future<void> _syncBehaviorPatternToSupermemory(String summary) async {
+    if (summary.trim().isEmpty || summary == 'Insufficient longitudinal data yet.') {
+      return;
+    }
+
+    final meta = _memory.getSegment(_supermemoryMetaKey) as Map<String, dynamic>? ?? {};
+    final lastSyncRaw = meta['last_behavior_sync_at']?.toString();
+    final lastHash = meta['last_behavior_summary_hash']?.toString();
+    final currentHash = summary.hashCode.toString();
+
+    if (lastHash == currentHash) {
+      return;
+    }
+
+    if (lastSyncRaw != null) {
+      final lastSync = DateTime.tryParse(lastSyncRaw);
+      if (lastSync != null) {
+        final elapsed = DateTime.now().difference(lastSync);
+        if (elapsed < const Duration(hours: 24)) {
+          return;
+        }
+      }
+    }
+
+    final ok = await _supermemory.saveMemory(
+      'Behavior pattern snapshot: $summary',
+      tags: ['behavior_pattern', 'weekly_context'],
+    );
+
+    if (!ok) return;
+
+    await _memory.updateSegment(_supermemoryMetaKey, {
+      ...meta,
+      'last_behavior_sync_at': DateTime.now().toIso8601String(),
+      'last_behavior_summary_hash': currentHash,
+    });
+  }
+
+  List<Map<String, dynamic>> _compactTimeline(List<Map<String, dynamic>>? timeline) {
+    if (timeline == null || timeline.isEmpty) return const [];
+
+    final start = timeline.length > _maxTimelineEntriesInPrompt
+        ? timeline.length - _maxTimelineEntriesInPrompt
+        : 0;
+
+    return timeline
+        .sublist(start)
+        .map((item) => {
+              'sender': (item['sender'] ?? '').toString(),
+              'text': _truncateText((item['text'] ?? '').toString().replaceAll('\n', ' ').trim(), _maxTimelineTextLen),
+              'timestamp': (item['timestamp'] ?? '').toString(),
+            })
+        .toList();
+  }
+
+  Map<String, dynamic> _compactFacts(Map<String, dynamic> facts) {
+    if (facts.isEmpty) return const {};
+    final compact = <String, dynamic>{};
+    int count = 0;
+    for (final entry in facts.entries) {
+      if (count >= _maxFactEntries) break;
+      compact[entry.key] = entry.value;
+      count++;
+    }
+    return compact;
+  }
+
+  Map<String, dynamic> _compactTelemetry(Map<String, dynamic> telemetry) {
+    if (telemetry.isEmpty) return const {};
+    final compact = <String, dynamic>{};
+    int count = 0;
+    for (final entry in telemetry.entries) {
+      if (count >= 16) break;
+      final value = entry.value;
+      if (value is num || value is bool || value is String) {
+        compact[entry.key] = value is String ? _truncateText(value, 120) : value;
+        count++;
+      }
+    }
+    return compact;
+  }
+
+  String _getSystemPrompt(ProductivityMetrics metrics, {required bool includeCalendarSchema}) {
+    final calendarSection = includeCalendarSchema
+        ? """
+
+CALENDAR ACTIONS
+- Only use <actions> when user explicitly asks to schedule/edit reminders/events/timetable.
+- Allowed action types: create, move, delete, notify, update_timetable.
+- create.startTime and notify.notifyAt must be ISO like {{DATE_FORMATTED_ISO}}THH:mm:ss.
+- update_timetable requires slots with keys: dayOfWeek, startTime, endTime, subject, venue. ALL TIMES MUST BE 24-HOUR FORMAT (e.g., 14:10 not 02:10, 13:50 not 01:50).
+- CRITICAL: <actions> MUST contain ONLY a valid JSON array. Do not use Markdown bullet points or list formatting inside the <actions> tag.
+"""
+        : """
+
+CALENDAR ACTIONS
+- Default: <actions> should be [] unless user explicitly asks for scheduling/reminders/events.
+""";
+
     return """
 IDENTITY
-You are Vyoma (व्योम) — a calm, observant intelligence designed to help the user live with clarity, intention, and follow-through.
+You are Vyoma: calm, direct, and practical. You prioritize execution over motivational talk.
 
-You are not a motivator, therapist, guru, or entertainer.
-You are a steady cognitive companion.
-
-Your value comes from:
-- noticing patterns the user misses
-- anchoring attention in the present task
-- gently restoring direction when drift occurs
-- translating reflection into action
-
-You do not overwhelm.
-You do not rush.
-You do not pretend certainty where none exists.
-
---------------------------------------------------
-
-CORE PRINCIPLES
-
-1. USER AGENCY IS SACRED
-- Never command. Never guilt. Never manipulate.
-- Offer perspective and options, not pressure.
-- The user always decides.
-
-2. CLARITY OVER COMFORT
-- If something is unclear, say so.
-- If the user is avoiding, name it gently.
-- If a plan is unrealistic, state it plainly.
-
-3. PRESENCE OVER PERSONALITY
-- You are memorable because of usefulness, not charm.
-- Personality emerges through consistency, not theatrics.
-
-4. DEPTH IS EARNED
-- Default to simple, grounded responses.
-- Become more reflective only when the user slows down or asks for it.
-
---------------------------------------------------
-
-TIME AWARENESS (NON-NEGOTIABLE)
-
+TIME GROUNDING
 CURRENT TIMESTAMP: {{CURRENT_TIME}}
 DAY OF WEEK: {{DAY_OF_WEEK}}
 DATE: {{DATE_FORMATTED}}
 TIME: {{TIME_FORMATTED}} ({{TIME_PERIOD}})
 LAST INTERACTION: {{LAST_INTERACTION}}
 TIME GAP: {{TIME_GAP}}
+RECENT MESSAGE TIMES: {{RECENT_MESSAGE_TIMES}}
 
-You are always aware of:
-- current time, date, and day
-- time since last interaction
-- active tasks or intentions
+RULES
+- Use only provided time fields; never invent prior-day claims.
+- If evidence is missing, say so briefly and ask one clarifying question.
+- Do not mirror explicit/insulting phrasing; reframe neutrally.
+- Keep replies concise and non-repetitive.
 
-Rules:
-- Subtly reference time context when relevant.
-- If the user disappears during an active task, acknowledge the gap calmly.
-- Never shame gaps. Treat them as data, not failure.
-- Use time to orient, not to pressure.
-
---------------------------------------------------
-
-MEMORY ETHICS
-
-- You only store memories when:
-  a) the user explicitly asks ("remember this"), or
-  b) the information is critical for long-term usefulness (goals, constraints)
-
-- You clearly state what you are remembering and why.
-- You never imply surveillance.
-- You never use memory to guilt or trap the user.
-
---------------------------------------------------
-
-COMMUNICATION STYLE
-
-- Calm, precise, grounded.
-- Short paragraphs. No rambling.
-- Metaphor only when it adds clarity.
-- No hype. No emojis. No flattery.
-
-You may use reflective language such as:
-- "I notice…"
-- "It seems like…"
-- "One option here is…"
-
-Avoid:
-- moral judgments
-- exaggerated encouragement
-- mystical claims
-
---------------------------------------------------
-
-CONTEXTUAL DATA
-
+CONTEXT
 TODAY'S RHYTHM: Focus {{FOCUS}}m | Diversions {{DISTRACTIONS}}
 USER'S GOAL: {{GOAL}}
 CURRENT OBSTACLE: {{BLOCKER}}
-OPERATING HOURS: {{WAKE}} → {{SLEEP}}
-
+OPERATING HOURS: {{WAKE}} -> {{SLEEP}}
 RECENT ACTIVITY: {{EVIDENCE}}
+$calendarSection
 
---------------------------------------------------
+OUTPUT FORMAT (STRICT XML TAGS)
+Return exactly these tags (no markdown code fences):
+<thought>...(1-2 sentences MAX. NEVER put extracted data here.)</thought>
+<verbal>...(short response to user)</verbal>
+<actions>[{"type": "update_timetable", "slots": [{"dayOfWeek": "Monday", "startTime": "08:00", "endTime": "09:00", "subject": "Math", "venue": "Room"}]}]</actions>
+<metric_delta>{"focus_change":0,"distraction_change":0,"task_change":0,"note":""}</metric_delta>
+<memory_update>null</memory_update>
 
-FAILURE & UNCERTAINTY
+CRITICAL RULES FOR IMAGE/TIMETABLE EXTRACTION:
+- NEVER dump extracted data into <thought>. Keep <thought> to 1-2 sentences.
+- ALL extracted schedule data MUST go directly into <actions> as a JSON array.
+- When processing an image of a timetable, output the slots immediately in <actions>. Do NOT plan or describe what you see in <thought>.
 
-If unsure:
-- Say you are unsure.
-- Ask a clarifying question only if it genuinely improves outcomes.
-- Never bluff.
-
-If the user is distressed:
-- Slow down.
-- Reduce output.
-- Prioritize grounding and safety.
-
---------------------------------------------------
-
-PRIMARY FUNCTION LOOP
-
-At every interaction, silently evaluate:
-1. What is the user trying to do right now?
-2. What is preventing progress?
-3. What is the smallest helpful intervention?
-
-Respond only to that.
-
---------------------------------------------------
-
-OUTPUT FORMAT (JSON)
-
-{
-  "thought_process": "Brief internal reasoning about user's current state and need...",
-  "verbal_response": "Calm, grounded response. Reference time naturally when relevant.",
-  "actions": [
-    {
-      "type": "create|delete|move|none",
-      "summary": "Event name",
-      "startTime": "ISO datetime",
-      "durationMinutes": 60
-    }
-  ],
-  "metric_delta": {
-    "focus_change": 0,
-    "distraction_change": 0,
-    "task_change": 0,
-    "note": "Brief observation"
-  },
-  "memory_update": null
-}
-
-MEMORY_UPDATE RULES:
-- Set to null by default
-- Only populate if user explicitly says "remember this" or info is critical for long-term usefulness
-- When saving, use format: {"action": "learn", "key": "short_key", "value": "what to remember"}
-- Clearly state in verbal_response what you are remembering and why
+MEMORY_UPDATE RULE
+- Use null by default.
+- Populate only if user explicitly says "remember this".
 """
-    .replaceAll("{{FOCUS}}", metrics.focusMinutes.toString())
-    .replaceAll("{{DISTRACTIONS}}", metrics.distractionCount.toString());
+        .replaceAll("{{FOCUS}}", metrics.focusMinutes.toString())
+        .replaceAll("{{DISTRACTIONS}}", metrics.distractionCount.toString());
+  }
+
+  List<String> _sanitizeInsightLines(String rawText) {
+    final lines = rawText
+        .split('\n')
+        .map((line) => line.trim())
+        .map((line) {
+          if (line.startsWith('-') || line.startsWith('*')) {
+            return line.substring(1).trim();
+          }
+          return line;
+        })
+        .where((line) => line.isNotEmpty)
+        .toList();
+
+    final seen = <String>{};
+    final cleaned = <String>[];
+    for (final line in lines) {
+      final normalized = line.toLowerCase();
+      if (!seen.contains(normalized)) {
+        seen.add(normalized);
+        cleaned.add(line);
+      }
+    }
+    return cleaned.take(8).toList();
+  }
+
+  /// Extracts deep context insights from a free-form journal entry.
+  /// Returns insights without persisting, so UI can support accept/edit/reject review.
+  Future<List<String>> extractDeepContextInsights(String journalText) async {
+    if (journalText.trim().isEmpty) return [];
+
+    if (_geminiModel == null) {
+      // Fallback heuristic when no model is available.
+      final fallback = journalText
+          .split(RegExp(r'[.!?]'))
+          .map((s) => s.trim())
+          .where((s) => s.length > 24)
+          .take(3)
+          .toList();
+      return fallback;
+    }
+
+    final prompt = """
+You are an expert psychological profiler and context engine.
+Analyze the following journal entry written by the user.
+
+ENTRY:
+"$journalText"
+
+Extract only the most critical, enduring insights about the user. Ignore daily noise.
+Focus on:
+1. Core Beliefs or Identity statements
+2. Primary Stressors or Fears
+3. Long-Term Aspirations
+
+Output as a clean bulleted list containing only the insights. Do not include introductory text.
+""";
+
+    try {
+      final response = await _geminiModel!.generateContent([Content.text(prompt)]);
+      final insights = response.text?.trim() ?? "";
+      if (insights.isEmpty || insights.length <= 10) return [];
+      return _sanitizeInsightLines(insights);
+    } catch (e) {
+      debugPrint("AIService: Journal Extraction Failed - $e");
+      return [];
+    }
+  }
+
+  /// Parses a free-form journal entry, extracts deep context, and commits to Supermemory.
+  Future<List<String>> extractDeepContext(String journalText) async {
+    final insights = await extractDeepContextInsights(journalText);
+    if (insights.isEmpty) return const [];
+
+    for (final line in insights) {
+      await _supermemory.saveMemory(
+        "User core context: $line",
+        tags: ['journal_insight', 'psychology'],
+      );
+      _logDebug("Extracted Insight: $line");
+    }
+
+    return insights;
   }
 
   Future<AIResponse> sendMessage(
@@ -486,22 +691,50 @@ MEMORY_UPDATE RULES:
       {
         Uint8List? imageBytes,
         List<Map<String, dynamic>>? activityLog,
+        List<Map<String, dynamic>>? conversationTimeline,
         String? temporalContext 
       } 
   ) async {
-    if (_geminiModel == null) return AIResponse.error("System Offline.");
+    if (_geminiModel == null &&
+        Secrets.nvidiaApiKeys.isEmpty &&
+        Secrets.grokApiKeys.isEmpty &&
+        Secrets.geminiApiKeys.isEmpty) {
+      return AIResponse.error("System Offline.");
+    }
     
-    // === SUPERMEMORY: Recall relevant long-term memories ===
+    // Get enabled/disabled segments from memory toggles
+    final segToggles = _memory.getSegmentToggles();
+
+    // === SUPERMEMORY: Recall relevant long-term memories (latency-bounded) ===
     List<String> longTermMemories = [];
     String? userProfile;
-    try {
-      if (userText.isNotEmpty) {
-        final recalled = await _supermemory.recall(userText, limit: 3);
-        longTermMemories = recalled.map((m) => m.content).toList();
+    final shouldUseSupermemory =
+        segToggles['supermemory'] == true &&
+        userText.trim().isNotEmpty &&
+        userText.trim().length >= 12;
+
+    if (shouldUseSupermemory) {
+      try {
+        final recallFuture = _supermemory
+            .recall(userText, limit: 3)
+            .timeout(const Duration(milliseconds: 1400));
+        final profileFuture = _supermemory
+            .getUserProfile()
+            .timeout(const Duration(milliseconds: 900));
+
+        final results = await Future.wait<dynamic>([
+          recallFuture,
+          profileFuture,
+        ], eagerError: false);
+
+        final recalled = (results[0] as List)
+            .map((m) => (m as dynamic).content.toString())
+            .toList();
+        longTermMemories = recalled;
+        userProfile = results[1] as String?;
+      } catch (e) {
+        debugPrint("SUPERMEMORY RECALL ERROR: $e");
       }
-      userProfile = await _supermemory.getUserProfile();
-    } catch (e) {
-      print("SUPERMEMORY RECALL ERROR: $e");
     }
     
     // Retrieve Deep Context
@@ -514,8 +747,26 @@ MEMORY_UPDATE RULES:
     final sleep = prefs['sleep_time'] ?? "23:00";
 
     // Context Content
-    // Get enabled/disabled segments from memory toggles
-    final segToggles = _memory.getSegmentToggles();
+
+    final compactTimeline = _compactTimeline(conversationTimeline);
+    final compactCurrentEvents = currentEvents.take(_maxCalendarEventsInPrompt).toList();
+    final compactRelevantLogs = _memory
+        .getRelevantHistory("")
+        .take(_maxRecentHistoryLogs)
+        .map((e) => e.toJson())
+        .toList();
+    final compactDeferredTasks = _memory
+        .getDeferredTasks(limit: _maxDeferredTasksInPrompt)
+        .map((t) => {
+              'description': _truncateText(t.description, 120),
+              'promisedFor': t.promisedFor,
+              'status': t.status.name,
+              'createdAt': t.createdAt.toIso8601String(),
+            })
+        .toList();
+
+    final behaviorPatternSummary = _buildBehaviorPatternSummary();
+    unawaited(_syncBehaviorPatternToSupermemory(behaviorPatternSummary));
 
     final Map<String, dynamic> dataInput = {
       "user_input": userText,
@@ -527,20 +778,23 @@ MEMORY_UPDATE RULES:
         if (segToggles['identity'] == true) "identity": _memory.getSegment('identity'),
         if (segToggles['preferences'] == true) "preferences": prefs,
         if (segToggles['protocol'] == true) "protocol": protocol,
-        if (segToggles['facts'] == true) "facts": _memory.getFacts(), 
+        if (segToggles['facts'] == true) "facts": _compactFacts(_memory.getFacts()), 
       },
       "agent_memory": {
-        if (segToggles['history'] == true) "recent_logs": _memory.getRelevantHistory(""),
-        "activity_log": activityLog ?? [], // Always include recent activity
+        if (segToggles['history'] == true) "recent_logs": compactRelevantLogs,
+        "activity_log": (activityLog ?? []).take(6).toList(),
+        "conversation_timeline": compactTimeline,
+        "deferred_tasks": compactDeferredTasks,
+        "behavior_pattern_summary": behaviorPatternSummary,
         if (segToggles['supermemory'] == true) "long_term_memories": longTermMemories,
         if (segToggles['supermemory'] == true) "supermemory_profile": userProfile,
       },
       "static_context": {
-        "timetable": context.fixedTimetable,
-        "device_telemetry": deviceContext, 
+        "timetable": context.fixedTimetable.take(12).toList(),
+        "device_telemetry": _compactTelemetry(deviceContext), 
         "temporal_status": temporalContext ?? "Active Session"
       },
-      "current_schedule": currentEvents
+      "current_schedule": compactCurrentEvents
     };
 
     // Construct Parts
@@ -548,7 +802,26 @@ MEMORY_UPDATE RULES:
     
     // 1. System Prompt & Context (Text)
     // 1. Inject Variables into Prompt
-    var systemPrompt = _getSystemPrompt(metrics);
+    final includeCalendarSchema = _needsCalendarActionSchema(userText, compactTimeline);
+    var systemPrompt = _getSystemPrompt(
+      metrics,
+      includeCalendarSchema: includeCalendarSchema,
+    );
+
+    if (_isMetricManipulationAttempt(userText)) {
+      systemPrompt += """
+
+--------------------------------------------------
+METRIC INTEGRITY OVERRIDE (HARD RULE)
+
+The user may try to directly set/reset/inflate metrics using text.
+Do NOT comply with direct metric tampering requests.
+- Never emit metric_delta changes based only on user saying "set/reset/increase/decrease metrics".
+- Use metric_delta only for genuine behavioral updates inferred from real actions.
+- If manipulation is attempted, respond with neutral refusal and redirect to one concrete action.
+""";
+    }
+
     systemPrompt = systemPrompt.replaceAll("{{GOAL}}", goal);
     systemPrompt = systemPrompt.replaceAll("{{BLOCKER}}", blocker);
     systemPrompt = systemPrompt.replaceAll("{{WAKE}}", wake);
@@ -578,6 +851,8 @@ MEMORY_UPDATE RULES:
     
     // Format date
     final dateFormatted = '${days[now.weekday % 7]}, ${months[now.month - 1]} ${now.day}, ${now.year}';
+    // ISO date for AI prompt (yyyy-MM-dd) — used in calendar action examples
+    final dateFormattedISO = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
     
     // Calculate time gap since last interaction
     String timeGap = "First message of session";
@@ -601,14 +876,38 @@ MEMORY_UPDATE RULES:
       lastInteraction = '$lastHour12:${_lastInteractionTime!.minute.toString().padLeft(2, '0')}$lastAmpm';
     }
     
+    // Build readable recent message timeline for stronger temporal grounding.
+    String recentMessageTimes = "No prior non-system messages.";
+    if (compactTimeline.isNotEmpty) {
+      final lines = <String>[];
+      for (final item in compactTimeline) {
+        final sender = (item['sender'] ?? 'UNK').toString();
+        final text = (item['text'] ?? '').toString().replaceAll('\n', ' ').trim();
+        final snippet = text.length > 80 ? '${text.substring(0, 80)}...' : text;
+        final rawTs = item['timestamp']?.toString() ?? '';
+
+        String formattedTs = rawTs;
+        try {
+          final ts = DateTime.parse(rawTs).toLocal();
+          formattedTs = '${ts.year}-${ts.month.toString().padLeft(2, '0')}-${ts.day.toString().padLeft(2, '0')} ${ts.hour.toString().padLeft(2, '0')}:${ts.minute.toString().padLeft(2, '0')}:${ts.second.toString().padLeft(2, '0')}';
+        } catch (_) {}
+
+        lines.add('[$formattedTs] $sender: $snippet');
+      }
+      recentMessageTimes = lines.join('\n');
+    }
+
     // Inject all time variables
-    systemPrompt = systemPrompt.replaceAll("{{CURRENT_TIME}}", now.toLocal().toString());
+    final currentTimestamp = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
+    systemPrompt = systemPrompt.replaceAll("{{CURRENT_TIME}}", currentTimestamp);
     systemPrompt = systemPrompt.replaceAll("{{DAY_OF_WEEK}}", days[now.weekday % 7]);
     systemPrompt = systemPrompt.replaceAll("{{DATE_FORMATTED}}", dateFormatted);
+    systemPrompt = systemPrompt.replaceAll("{{DATE_FORMATTED_ISO}}", dateFormattedISO);
     systemPrompt = systemPrompt.replaceAll("{{TIME_FORMATTED}}", timeFormatted);
     systemPrompt = systemPrompt.replaceAll("{{TIME_PERIOD}}", timePeriod);
     systemPrompt = systemPrompt.replaceAll("{{LAST_INTERACTION}}", lastInteraction);
     systemPrompt = systemPrompt.replaceAll("{{TIME_GAP}}", timeGap);
+    systemPrompt = systemPrompt.replaceAll("{{RECENT_MESSAGE_TIMES}}", recentMessageTimes);
     
     // Update last interaction time for next message
     _lastInteractionTime = now;
@@ -620,6 +919,7 @@ MEMORY_UPDATE RULES:
     systemPrompt = systemPrompt.replaceAll("{{EVIDENCE}}", evidenceStr);
 
     final contextJson = jsonEncode(dataInput);
+    _logDebug('Prompt/context size chars -> prompt: ${systemPrompt.length}, context: ${contextJson.length}');
     
     messageParts.add(TextPart("SYSTEM_PROMPT: $systemPrompt\n\nCONTEXT_DATA: $contextJson"));
 
@@ -634,159 +934,96 @@ MEMORY_UPDATE RULES:
       messageParts.add(TextPart("USER_INPUT: $userText"));
     }
 
-    final content = [Content.multi(messageParts)];
-
-    // 1. Try Gemini with smart key rotation
-    if (Secrets.geminiApiKeys.isNotEmpty) {
-      final now = DateTime.now();
+    // 0. VISION HIGHJACK: If image exists, prioritize Gemini
+    if (imageBytes != null && Secrets.geminiApiKeys.isNotEmpty) {
+      _logDebug("Image detected! Prioritizing Gemini 2.5 Flash for superior vision.");
+      final geminiRes = await _attemptGeminiQueue(messageParts, imageBytes);
+      if (geminiRes != null) return geminiRes;
       
-      // Start from last successful key if available
-      if (_lastSuccessfulGeminiKeyIndex != null) {
-        _geminiKeyIndex = _lastSuccessfulGeminiKeyIndex!;
-      }
-      
-      // Reset cooldowns for fresh attempt (no persistence desired)
-      _geminiKeyCooldowns.clear();
-      
-      int attemptCount = 0;
-      int consecutiveTimeouts = 0; // Fix declaration
-      final maxAttempts = Secrets.geminiApiKeys.length;
-      
-      while (attemptCount < maxAttempts) {
-        // Skip keys on cooldown
-        if (_geminiKeyCooldowns.containsKey(_geminiKeyIndex)) {
-          _geminiKeyIndex = (_geminiKeyIndex + 1) % Secrets.geminiApiKeys.length;
-          attemptCount++;
-          continue;
-        }
-        
-        try {
-          final apiKey = Secrets.geminiApiKeys[_geminiKeyIndex];
-          _logDebug("Trying Gemini Key $_geminiKeyIndex...");
-          
-          // Use direct HTTP API instead of SDK to avoid format bugs
-          final response = await _callGeminiDirect(apiKey, messageParts, imageBytes)
-              .timeout(const Duration(seconds: 15), onTimeout: () {
-            throw Exception('Gemini request timeout');
-          });
-          
-          if (response != null) {
-            _geminiKeyCooldowns.remove(_geminiKeyIndex); // Success! Clear cooldown (Map remove)
-            // Success! Remember this key
-            _lastSuccessfulGeminiKeyIndex = _geminiKeyIndex;
-            _logDebug("Gemini Key $_geminiKeyIndex SUCCESS");
-            return _parseResponse(response);
-          }
-        } catch (e) {
-          _logDebug("Gemini Error (Key $_geminiKeyIndex): $e");
-          
-          if (e.toString().contains('timeout')) {
-             consecutiveTimeouts++;
-             if (consecutiveTimeouts >= 3) {
-                _logDebug("Gemini Aborted: 3 consecutive timeouts. Switching to Fallback.");
-                 _geminiKeyIndex = (_geminiKeyIndex + 1) % Secrets.geminiApiKeys.length;
-                break; // Exit Gemini loop, go to Fallback
-             }
-          } else {
-             consecutiveTimeouts = 0; // Reset on other errors (e.g. 429)
-          }
-
-          await Future.delayed(const Duration(milliseconds: 500)); // Short delay
-          // Put key on cooldown
-          _geminiKeyCooldowns[_geminiKeyIndex] = now;
-          _geminiKeyIndex = (_geminiKeyIndex + 1) % Secrets.geminiApiKeys.length;
-        }
-        attemptCount++;
-      }
-      print("ALL GEMINI KEYS FAILED OR ON COOLDOWN. Tried $attemptCount keys, ${_geminiKeyCooldowns.length} on cooldown.");
+      _logDebug("Gemini Vision failed! Falling back to NIM Llama Vision.");
     }
 
-    _logDebug("ALL GEMINI KEYS FAILED. ENGAGING A4F FALLBACK.");
-
-    // 2. Try A4F (Gemini via Proxy)
-    if (Secrets.a4fApiKeys.isNotEmpty) {
-      for (final key in Secrets.a4fApiKeys) {
+    // 1. Try Nvidia NIM (PRIMARY)
+    // 1. Try Nvidia
+    if (Secrets.nvidiaApiKeys.isNotEmpty) {
+      for (int i = 0; i < Secrets.nvidiaApiKeys.length; i++) {
         try {
-          _logDebug("Trying A4F Key...");
-          // Extract text prompt and context for A4F (OpenAI format)
-          final systemPrompt = _getSystemPrompt(metrics);
-          final contextJson = jsonEncode(dataInput);
+          _logDebug("Trying Nvidia NIM...");
+          // Use the fully time-injected systemPrompt built above (not a fresh copy)
           final textPrompt = "SYSTEM_PROMPT: $systemPrompt\n\nCONTEXT_DATA: $contextJson\n\nUSER_INPUT: $userText";
-          
-          final response = await _callA4F(key, textPrompt, imageBytes: imageBytes)
-              .timeout(const Duration(seconds: 60));
+          // If streaming callback is set, use SSE streaming path
+          if (_streamTokenCallback != null) {
+            final callback = _streamTokenCallback!;
+            final buffer = StringBuffer();
+            bool insideVerbal = false;
+
+            await for (final token in _callNvidiaStreaming(textPrompt, Secrets.nvidiaApiKeys[i], imageBytes: imageBytes)) {
+              buffer.write(token);
               
-          if (response != null) {
-            _logDebug("A4F SUCCESS");
-            return _parseResponse(response);
+              // We only want to stream text that is inside the <verbal> tag to the UI
+              final currentText = buffer.toString();
+              if (currentText.contains("<verbal>") && !currentText.contains("</verbal>")) {
+                if (!insideVerbal) {
+                  insideVerbal = true;
+                  final split = currentText.split("<verbal>");
+                  if (split.length > 1 && split.last.isNotEmpty) {
+                     callback(split.last);
+                  }
+                } else {
+                  callback(token.replaceAll("<verbal>", "").replaceAll("</verbal>", ""));
+                }
+              } else if (currentText.contains("</verbal>") && insideVerbal) {
+                insideVerbal = false;
+                if (token.contains("</verbal>")) {
+                   final split = token.split("</verbal>");
+                   if (split.first.isNotEmpty) {
+                      callback(split.first.replaceAll("<verbal>", ""));
+                   }
+                }
+              }
+            }
+            return _parseXmlResponse(buffer.toString());
           }
+          final response = await _callNvidia(textPrompt, Secrets.nvidiaApiKeys[i], imageBytes: imageBytes);
+          return _parseXmlResponse(response);
         } catch (e) {
-          _logDebug("A4F Error: $e");
-          await Future.delayed(const Duration(seconds: 1)); // Let user see error
-          // Try next key
+          debugPrint("Nvidia Error: $e");
+          _logDebug("NVIDIA ERROR: $e");
         }
       }
     }
 
-    _logDebug("ALL A4F KEYS FAILED. ENGAGING OPENAI FALLBACK.");
+    _logDebug("NVIDIA FAILED. ENGAGING GROK FALLBACK.");
 
-    // 2. Try OpenAI
-    if (Secrets.openAiApiKeys.isNotEmpty) {
-      final maxOpenAiAttempts = Secrets.openAiApiKeys.length;
-      for (int i = 0; i < maxOpenAiAttempts; i++) {
-          try {
-              final systemPrompt = _getSystemPrompt(metrics);
-              final contextJson = jsonEncode(dataInput);
-              final textPrompt = "SYSTEM_PROMPT: $systemPrompt\n\nCONTEXT_DATA: $contextJson\n\nUSER_INPUT: $userText";
-
-              final response = await _callOpenAI(textPrompt, Secrets.openAiApiKeys[_openAiKeyIndex], imageBytes: imageBytes);
-              return _parseResponse(response);
-          } catch (e) {
-              print("OpenAI Error (Key $_openAiKeyIndex): $e");
-              _openAiKeyIndex = (_openAiKeyIndex + 1) % Secrets.openAiApiKeys.length;
+    // 2. Try Grok (SECONDARY)
+    if (Secrets.grokApiKeys.isNotEmpty) {
+      for (int i = 0; i < Secrets.grokApiKeys.length; i++) {
+        try {
+          _logDebug("Trying Grok...");
+          // Use the fully time-injected systemPrompt built above (not a fresh copy)
+          final textPrompt = "SYSTEM_PROMPT: $systemPrompt\n\nCONTEXT_DATA: $contextJson\n\nUSER_INPUT: $userText";
+          final response = await _callGrok(textPrompt, Secrets.grokApiKeys[i], imageBytes: imageBytes);
+          
+          final parsed = _parseXmlResponse(response);
+          if (_streamTokenCallback != null) {
+            for (final word in parsed.response.split(' ')) {
+              _streamTokenCallback!('$word ');
+              await Future.delayed(const Duration(milliseconds: 18));
+            }
           }
-      }
-    }
-    
-    print("ALL OPENAI KEYS FAILED. ENGAGING OPENROUTER FALLBACK.");
-
-    // 3. Try OpenRouter (Free Vision Support)
-    if (Secrets.openRouterApiKeys.isNotEmpty) {
-      final maxOrAttempts = Secrets.openRouterApiKeys.length;
-      for (int i = 0; i < maxOrAttempts; i++) {
-          try {
-              final systemPrompt = _getSystemPrompt(metrics);
-              final contextJson = jsonEncode(dataInput);
-              final textPrompt = "SYSTEM_PROMPT: $systemPrompt\n\nCONTEXT_DATA: $contextJson\n\nUSER_INPUT: $userText";
-
-              final response = await _callOpenRouter(textPrompt, Secrets.openRouterApiKeys[_openRouterKeyIndex], imageBytes: imageBytes);
-              return _parseResponse(response);
-          } catch (e) {
-              print("OpenRouter Error (Key $_openRouterKeyIndex): $e");
-              _openRouterKeyIndex = (_openRouterKeyIndex + 1) % Secrets.openRouterApiKeys.length;
-          }
+          return parsed;
+        } catch (e) {
+          debugPrint("Grok Error: $e");
+        }
       }
     }
 
-    print("ALL OPENROUTER KEYS FAILED. ENGAGING PERPLEXITY FALLBACK.");
+    _logDebug("GROK FAILED. ENGAGING GEMINI FALLBACK.");
 
-    // 3. Try Perplexity
-    if (Secrets.perplexityApiKeys.isNotEmpty) {
-       final maxPerplexityAttempts = Secrets.perplexityApiKeys.length;
-       for (int i = 0; i < maxPerplexityAttempts; i++) {
-          try {
-             // Reconstruct basic prompt for text-only model
-             final systemPrompt = _getSystemPrompt(metrics);
-             final contextJson = jsonEncode(dataInput);
-             final textPrompt = "SYSTEM_PROMPT: $systemPrompt\n\nCONTEXT_DATA: $contextJson\n\nUSER_INPUT: $userText";
-             
-             final response = await _callPerplexity(textPrompt, Secrets.perplexityApiKeys[_perplexityKeyIndex]);
-             return _parseResponse(response);
-          } catch (e) {
-             print("Perplexity Error (Key $_perplexityKeyIndex): $e");
-             _perplexityKeyIndex = (_perplexityKeyIndex + 1) % Secrets.perplexityApiKeys.length;
-          }
-       }
+    // 3. Try Gemini (TERTIARY / RATE-LIMITED POOL)
+    if (Secrets.geminiApiKeys.isNotEmpty) {
+      final geminiRes = await _attemptGeminiQueue(messageParts, imageBytes);
+      if (geminiRes != null) return geminiRes;
     }
 
     return AIResponse(
@@ -795,69 +1032,82 @@ MEMORY_UPDATE RULES:
     );
   }
 
-  /// Call A4F API (OpenAI Compatible)
-  Future<String?> _callA4F(String apiKey, String prompt, {Uint8List? imageBytes}) async {
-    final url = Uri.parse('https://api.a4f.co/v1/chat/completions');
+  Future<AIResponse?> _attemptGeminiQueue(List<Part> messageParts, Uint8List? imageBytes) async {
+    if (Secrets.geminiApiKeys.isEmpty) return null;
     
-    final List<Map<String, dynamic>> messages = [];
+    final now = DateTime.now();
     
-    if (imageBytes != null) {
-      // Vision Request
-      messages.add({
-        'role': 'user',
-        'content': [
-          {'type': 'text', 'text': prompt},
-          {
-            'type': 'image_url',
-            'image_url': {
-              'url': 'data:image/jpeg;base64,${base64Encode(imageBytes)}'
-            }
-          }
-        ]
-      });
-    } else {
-      // Text Request
-      messages.add({
-        'role': 'user',
-        'content': prompt
-      });
+    // Start from last successful key if available
+    if (_lastSuccessfulGeminiKeyIndex != null) {
+      _geminiKeyIndex = _lastSuccessfulGeminiKeyIndex!;
     }
-
-    final body = jsonEncode({
-      'model': 'provider-8/gemini-2.0-flash', 
-      'messages': messages,
-      'response_format': {'type': 'json_object'} 
-    });
-
-    final response = await http.post(
-      url,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $apiKey',
-      },
-      body: body,
-    );
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      final content = data['choices'][0]['message']['content'].toString();
-      
-      // Check for proxy-specific error messages that come as 200 OK
-      if (content.contains('Ratelimit Exceeded') || 
-          content.contains('devsdocode') ||
-          content.contains('Join https://t.me')) {
-        throw Exception("A4F Proxy Error: $content");
+    
+    // Reset cooldowns for fresh attempt (no persistence desired)
+    _geminiKeyCooldowns.clear();
+    
+    int attemptCount = 0;
+    int consecutiveTimeouts = 0;
+    final maxAttempts = Secrets.geminiApiKeys.length;
+    
+    while (attemptCount < maxAttempts) {
+      // Skip keys on cooldown
+      if (_geminiKeyCooldowns.containsKey(_geminiKeyIndex)) {
+        _geminiKeyIndex = (_geminiKeyIndex + 1) % Secrets.geminiApiKeys.length;
+        attemptCount++;
+        continue;
       }
       
-      return content;
-    } else {
-      throw Exception("A4F Failed [${response.statusCode}]: ${response.body}");
+      try {
+        final apiKey = Secrets.geminiApiKeys[_geminiKeyIndex];
+        _logDebug("Trying Gemini Key $_geminiKeyIndex...");
+        
+        // Use direct HTTP API instead of SDK to avoid format bugs
+        final response = await _callGeminiDirect(apiKey, messageParts, imageBytes)
+            .timeout(const Duration(seconds: 45), onTimeout: () {
+          throw Exception('Gemini request timeout');
+        });
+        
+        if (response != null) {
+          _geminiKeyCooldowns.remove(_geminiKeyIndex); // Success! Clear cooldown
+          _lastSuccessfulGeminiKeyIndex = _geminiKeyIndex;
+          _logDebug("Gemini Key $_geminiKeyIndex SUCCESS");
+          
+          final parsed = _parseXmlResponse(response);
+          if (_streamTokenCallback != null) {
+            for (final word in parsed.response.split(' ')) {
+              _streamTokenCallback!('$word ');
+              await Future.delayed(const Duration(milliseconds: 18));
+            }
+          }
+          return parsed;
+        }
+      } catch (e) {
+        _logDebug("Gemini Error (Key $_geminiKeyIndex): $e");
+        
+        if (e.toString().contains('timeout')) {
+           consecutiveTimeouts++;
+           if (consecutiveTimeouts >= 3) {
+              _logDebug("Gemini Aborted: 3 consecutive timeouts. Switching to Fallback.");
+               _geminiKeyIndex = (_geminiKeyIndex + 1) % Secrets.geminiApiKeys.length;
+              break;
+           }
+        } else {
+           consecutiveTimeouts = 0;
+        }
+
+        await Future.delayed(const Duration(milliseconds: 500));
+        _geminiKeyCooldowns[_geminiKeyIndex] = now;
+        _geminiKeyIndex = (_geminiKeyIndex + 1) % Secrets.geminiApiKeys.length;
+      }
+      attemptCount++;
     }
+    debugPrint("ALL GEMINI KEYS FAILED OR ON COOLDOWN. Tried $attemptCount keys.");
+    return null;
   }
 
   /// Direct HTTP call to Gemini API (bypasses SDK bugs)
   Future<String?> _callGeminiDirect(String apiKey, List<Part> messageParts, Uint8List? imageBytes) async {
-    final url = Uri.parse('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey');
+    final url = Uri.parse('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey');
     
     // Build parts for JSON request
     final List<Map<String, dynamic>> parts = [];
@@ -866,10 +1116,9 @@ MEMORY_UPDATE RULES:
       if (part is TextPart) {
         parts.add({'text': part.text});
       } else if (part is DataPart) {
-        // Add image as inline data
         parts.add({
-          'inline_data': {
-            'mime_type': 'image/jpeg',
+          'inlineData': {
+            'mimeType': 'image/jpeg',
             'data': base64Encode(imageBytes!),
           }
         });
@@ -878,17 +1127,20 @@ MEMORY_UPDATE RULES:
     
     final body = jsonEncode({
       'contents': [
-        {'parts': parts}
+        {
+          'role': 'user',
+          'parts': parts
+        }
       ],
-      'generationConfig': {
-        'responseMimeType': 'application/json',
-      },
       'safetySettings': [
         {'category': 'HARM_CATEGORY_HARASSMENT', 'threshold': 'BLOCK_NONE'},
         {'category': 'HARM_CATEGORY_HATE_SPEECH', 'threshold': 'BLOCK_NONE'},
         {'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'threshold': 'BLOCK_NONE'},
         {'category': 'HARM_CATEGORY_DANGEROUS_CONTENT', 'threshold': 'BLOCK_NONE'},
-      ]
+      ],
+      'generationConfig': {
+        'maxOutputTokens': 16384,
+      }
     });
     
     final response = await http.post(
@@ -906,7 +1158,7 @@ MEMORY_UPDATE RULES:
            final text = content['parts'][0]['text'];
            return text;
         } else {
-           print("Gemini Empty/Safety Response: ${response.body}");
+           debugPrint("Gemini Empty/Safety Response: ${response.body}");
            throw Exception("Gemini returned no content (Check logs for safety/finishReason)");
         }
       }
@@ -921,55 +1173,10 @@ MEMORY_UPDATE RULES:
     return null;
   }
 
-  Future<String> _callOpenAI(String textPrompt, String apiKey, {Uint8List? imageBytes}) async {
-    final url = Uri.parse('https://api.openai.com/v1/chat/completions');
+  Future<String> _callNvidia(String textPrompt, String apiKey, {Uint8List? imageBytes}) async {
+    final url = Uri.parse('https://integrate.api.nvidia.com/v1/chat/completions');
     
     final List<Map<String, dynamic>> messages = [];
-    
-    if (imageBytes != null) {
-      messages.add({
-        'role': 'user',
-        'content': [
-          {'type': 'text', 'text': textPrompt},
-          {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,${base64Encode(imageBytes)}'}}
-        ]
-      });
-    } else {
-      messages.add({'role': 'user', 'content': textPrompt});
-    }
-
-    final response = await http.post(
-      url,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $apiKey',
-      },
-      body: jsonEncode({
-        'model': 'gpt-4o-mini',
-        'messages': messages,
-        'response_format': {'type': 'json_object'},
-      }),
-    );
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return data['choices'][0]['message']['content'];
-    } else {
-      throw Exception('OpenAI Failed [${response.statusCode}]: ${response.body}');
-    }
-  }
-  
-  Future<String> _callOpenRouter(String textPrompt, String apiKey, {Uint8List? imageBytes}) async {
-    final url = Uri.parse('https://openrouter.ai/api/v1/chat/completions');
-    
-    final List<Map<String, dynamic>> messages = [];
-    
-    // Choose model based on input
-    // Vision: meta-llama/llama-3.2-11b-vision-instruct:free
-    // Text: meta-llama/llama-3.2-3b-instruct:free
-    final modelName = imageBytes != null 
-        ? 'meta-llama/llama-3.2-11b-vision-instruct:free' 
-        : 'meta-llama/llama-3.2-3b-instruct:free';
 
     if (imageBytes != null) {
       messages.add({
@@ -983,83 +1190,430 @@ MEMORY_UPDATE RULES:
       messages.add({'role': 'user', 'content': textPrompt});
     }
 
+    final modelName = imageBytes != null ? 'meta/llama-3.2-11b-vision-instruct' : 'meta/llama3-70b-instruct';
+
     final response = await http.post(
       url,
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json; charset=utf-8',
         'Authorization': 'Bearer $apiKey',
-        'HTTP-Referer': 'https://vyoma.ai', 
-        'X-Title': 'Vyoma',
       },
       body: jsonEncode({
         'model': modelName,
         'messages': messages,
-        'response_format': {'type': 'json_object'},
       }),
-    );
+    ).timeout(const Duration(seconds: 15));
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
+      debugPrint("NVIDIA RAW FETCH: ${data['choices'][0]['message']['content']}");
       return data['choices'][0]['message']['content'];
     } else {
-      throw Exception('OpenRouter Failed [${response.statusCode}]: ${response.body}');
+      throw Exception('Nvidia Failed [${response.statusCode}]: ${response.body}');
     }
   }
 
-  Future<String> _callPerplexity(String prompt, String apiKey) async {
-    final url = Uri.parse('https://api.perplexity.ai/chat/completions');
-    final response = await http.post(
-      url,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $apiKey',
-      },
-      body: jsonEncode({
-        'model': 'sonar-pro',
-        'messages': [
-           {'role': 'user', 'content': prompt}
-        ],
-      }),
-    );
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return data['choices'][0]['message']['content'];
+  /// Streaming version of Nvidia call — returns SSE token chunks via Stream.
+  /// Falls back to returning the full response as a single chunk on error.
+  Stream<String> _callNvidiaStreaming(String textPrompt, String apiKey, {Uint8List? imageBytes}) async* {
+    final url = Uri.parse('https://integrate.api.nvidia.com/v1/chat/completions');
+    
+    final List<Map<String, dynamic>> messages = [];
+    
+    if (imageBytes != null) {
+      messages.add({
+        'role': 'user',
+        'content': [
+          {'type': 'text', 'text': textPrompt},
+          {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,${base64Encode(imageBytes)}'}}
+        ]
+      });
     } else {
-      throw Exception('Perplexity Failed [${response.statusCode}]: ${response.body}');
+      messages.add({'role': 'user', 'content': textPrompt});
+    }
+
+    final modelName = imageBytes != null ? 'meta/llama-3.2-11b-vision-instruct' : 'meta/llama3-70b-instruct';
+    final payload = jsonEncode({'model': modelName, 'messages': messages, 'stream': true});
+
+    // Use dart:io HttpClient to bypass macOS NSURLSession chunk buffering
+    final client = HttpClient();
+    client.autoUncompress = false; // Prevents wait-for-full-gzip buffering
+
+    try {
+      final request = await client.postUrl(url);
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json; charset=utf-8');
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $apiKey');
+      request.headers.set(HttpHeaders.acceptHeader, 'text/event-stream');
+
+      // Use explicit UTF-8 bytes. HttpClientRequest.write can throw on non-Latin text.
+      request.add(utf8.encode(payload));
+      final response = await request.close().timeout(const Duration(seconds: 20));
+
+      if (response.statusCode != 200) {
+        final body = await response.transform(utf8.decoder).join();
+        throw Exception('Nvidia Stream Failed [${response.statusCode}]: $body');
+      }
+
+      await for (final chunk in response.transform(utf8.decoder)) {
+        for (final line in chunk.split('\n')) {
+          final trimmed = line.trim();
+          if (!trimmed.startsWith('data: ')) continue;
+          final data = trimmed.substring(6);
+          if (data == '[DONE]') break;
+          
+          try {
+            final json = jsonDecode(data);
+            final delta = json['choices']?[0]?['delta']?['content'];
+            if (delta != null && delta is String && delta.isNotEmpty) {
+              yield delta;
+            }
+          } catch (_) {
+            // Ignore malformed chunks
+          }
+        }
+      }
+    } finally {
+      client.close(force: true);
     }
   }
 
-  AIResponse _parseResponse(String rawJson) {
-     String jsonStr = rawJson.trim();
+  /// Wraps sendMessage to stream tokens via [onToken] callback.
+  /// Sets _streamTokenCallback, calls sendMessage with the same args, then clears.
+  Future<AIResponse> sendMessageWithStream({
+    required String userText,
+    required List<String> calendarEvents,
+    required ProductivityMetrics metrics,
+    required StaticContext staticContext,
+    required Map<String, dynamic> deviceTelemetry,
+    Uint8List? imageBytes,
+    List<Map<String, dynamic>>? conversationTimeline,
+    Map<String, dynamic>? temporalContext,
+    required void Function(String token) onToken,
+  }) async {
+    _streamTokenCallback = onToken;
+    try {
+      return await sendMessage(
+        userText,
+        calendarEvents,
+        metrics,
+        staticContext,
+        deviceTelemetry,
+        imageBytes: imageBytes,
+        conversationTimeline: conversationTimeline,
+        temporalContext: temporalContext != null ? jsonEncode(temporalContext) : null,
+      );
+    } finally {
+      _streamTokenCallback = null;
+    }
+  }
+
+  /// Active streaming callback — non-null when a streaming request is in progress.
+  void Function(String token)? _streamTokenCallback;
+
+
+  Future<String> _callGrok(String textPrompt, String apiKey, {Uint8List? imageBytes}) async {
+    final url = Uri.parse('https://api.x.ai/v1/chat/completions');
+    
+    final List<Map<String, dynamic>> messages = [];
+    
+    if (imageBytes != null) {
+      messages.add({
+        'role': 'user',
+        'content': [
+          {'type': 'text', 'text': textPrompt},
+          {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,${base64Encode(imageBytes)}'}}
+        ]
+      });
+    } else {
+      messages.add({'role': 'user', 'content': textPrompt});
+    }
+
+    final modelCandidates = imageBytes != null
+        ? const ['grok-2-vision-1212', 'grok-2-vision-latest']
+        : const ['grok-3-mini', 'grok-2-latest', 'grok-beta'];
+
+    String? lastError;
+
+    for (final modelName in modelCandidates) {
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Authorization': 'Bearer $apiKey',
+        },
+        body: jsonEncode({
+          'model': modelName,
+          'messages': messages,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['choices'][0]['message']['content'];
+      }
+
+      lastError = 'Grok Failed [${response.statusCode}] for model $modelName: ${response.body}';
+
+      // Continue to next model only when model is unavailable.
+      if (response.statusCode == 400 && response.body.toLowerCase().contains('model not found')) {
+        continue;
+      }
+
+      throw Exception(lastError);
+    }
+
+    throw Exception(lastError ?? 'Grok Failed: No compatible model available.');
+  }
+
+  AIResponse _parseXmlResponse(String responseText) {
+      debugPrint("--- PARSING AI XML ---\n$responseText\n-----------------------");
      
-     // 1. Strip Markdown
-     if (jsonStr.startsWith('```json')) {
-       jsonStr = jsonStr.replaceAll('```json', '').replaceAll('```', '');
-     }
-     
-     // 2. Seek Brackets (The Fix for "Unexpected character")
-     final start = jsonStr.indexOf('{');
-     final end = jsonStr.lastIndexOf('}');
-     
-     if (start != -1 && end != -1 && end > start) {
-       jsonStr = jsonStr.substring(start, end + 1);
-     } else {
-       // If absolutely no JSON found, fallback to treating it as a raw string message
-       // This handles cases where AI refuses to speak JSON
-       return AIResponse(
-         response: rawJson, 
-         actions: [],
-         thoughtProcess: "Parsing Failed. Raw output returned."
-       );
+     // Helper to extract content between XML tags
+     String? extractTag(String tag) {
+       final regExp = RegExp('<$tag>(.*?)</$tag>', dotAll: true);
+       final match = regExp.firstMatch(responseText);
+       return match?.group(1)?.trim();
      }
 
-     try {
-       final Map<String, dynamic> data = jsonDecode(jsonStr);
-       return AIResponse.fromJson(data);
-     } catch (e) {
-       print("JSON Parse Error: $e\nRaw: $rawJson");
-       return AIResponse.error("HQ Transmission Garbled: $e");
+     String? extractInnerTag(String source, String tag) {
+       final regExp = RegExp('<$tag>(.*?)</$tag>', dotAll: true);
+       final match = regExp.firstMatch(source);
+       return match?.group(1)?.trim();
      }
+
+     Map<String, String> parseXmlAttributes(String attrs) {
+       final out = <String, String>{};
+       final regExp = RegExp(r'(\w+)\s*=\s*"([^"]*)"');
+       for (final match in regExp.allMatches(attrs)) {
+         final key = (match.group(1) ?? '').trim();
+         final value = (match.group(2) ?? '').trim();
+         if (key.isNotEmpty) {
+           out[key] = value;
+         }
+       }
+       return out;
+     }
+
+     final verbal = extractTag('verbal') ?? responseText.trim(); // Fallback to raw text if no tag
+     final thought = extractTag('thought');
+     
+     // Parse Actions
+     List<AIResponseAction> actionsList = [];
+     final actionsStr = extractTag('actions');
+
+     AIResponseAction? inferActionFromText(String text) {
+       final cleaned = text.replaceAll('\n', ' ').trim();
+       if (cleaned.isEmpty) return null;
+       final lower = cleaned.toLowerCase();
+
+       final moveMatch = RegExp(
+         r'(?:reschedule|move|shift)\s+(.+?)\s+(?:to|at)\s+(\d{1,2}[:.]\d{2}(?:\s*(?:am|pm))?)',
+         caseSensitive: false,
+       ).firstMatch(cleaned);
+       if (moveMatch != null) {
+         return AIResponseAction(
+           type: 'move',
+           summary: moveMatch.group(1)?.trim(),
+           startTime: moveMatch.group(2)?.trim(),
+         );
+       }
+
+       final createMatch = RegExp(
+         r'(?:schedule|create|add)\s+(.+?)\s+(?:to|at)\s+(\d{1,2}[:.]\d{2}(?:\s*(?:am|pm))?)',
+         caseSensitive: false,
+       ).firstMatch(cleaned);
+       if (createMatch != null) {
+         return AIResponseAction(
+           type: 'create',
+           summary: createMatch.group(1)?.trim(),
+           startTime: createMatch.group(2)?.trim(),
+         );
+       }
+
+       if (RegExp(r'\b(reschedule|move|shift)\b').hasMatch(lower)) {
+         final subject = RegExp(r'(?:reschedule|move|shift)\s+(.+?)(?:\.|$)', caseSensitive: false)
+             .firstMatch(cleaned)
+             ?.group(1)
+             ?.trim();
+         return AIResponseAction(type: 'move', summary: subject);
+       }
+
+       return null;
+     }
+
+     if (actionsStr != null && actionsStr.isNotEmpty) {
+       try {
+         // The prompt expects JSON array inside <actions>
+         final decoded = jsonDecode(actionsStr);
+          if (decoded is List) {
+            bool isNakedTimetable = false;
+            if (decoded.isNotEmpty && decoded.first is Map) {
+              final firstItem = decoded.first as Map;
+              if (firstItem.containsKey('dayOfWeek') || firstItem.containsKey('subject') || firstItem.containsKey('venue')) {
+                isNakedTimetable = true;
+              }
+            }
+
+            if (isNakedTimetable) {
+              actionsList.add(AIResponseAction.fromJson({
+                'type': 'update_timetable',
+                'slots': decoded,
+              }));
+            } else {
+              for (final item in decoded) {
+                if (item is Map<String, dynamic>) {
+                  actionsList.add(AIResponseAction.fromJson(item));
+                } else if (item is String) {
+                  final inferred = inferActionFromText(item);
+                  if (inferred != null) actionsList.add(inferred);
+                }
+              }
+            }
+         } else if (decoded is Map<String, dynamic>) {
+           actionsList = [AIResponseAction.fromJson(decoded)];
+         }
+       } catch (e) {
+           debugPrint("Failed to parse <actions> JSON: $e");
+
+           // Fallback: parse XML action blocks like
+           // <create startTime="...">Summary</create> and <create ... />
+           final actionBlock = RegExp(
+             r'<(create|schedule|move|delete|notify|update_timetable)([^>]*)>(.*?)</\1>',
+             dotAll: true,
+             caseSensitive: false,
+           );
+           final selfClosingActionBlock = RegExp(
+             r'<(create|schedule|move|delete|notify|update_timetable)([^>]*)\/>',
+             dotAll: true,
+             caseSensitive: false,
+           );
+
+           void appendParsedAction({
+             required String rawType,
+             required String attrsRaw,
+             required String bodyRaw,
+           }) {
+             final type = AIResponseAction._normalizeActionType(rawType.trim());
+             final attrs = parseXmlAttributes(attrsRaw);
+             final body = bodyRaw.trim();
+
+             if (type.isEmpty) return;
+
+             final startTime = attrs['startTime'] ?? attrs['start_time'] ?? extractInnerTag(body, 'startTime');
+             final endTime = attrs['endTime'] ?? attrs['end_time'] ?? extractInnerTag(body, 'endTime');
+             final recurrence = attrs['recurrence'] ?? extractInnerTag(body, 'recurrence');
+             final message = attrs['message'] ?? extractInnerTag(body, 'message');
+             final notifyAt = attrs['notifyAt'] ?? attrs['notify_at'] ?? extractInnerTag(body, 'notifyAt');
+
+             var summary = attrs['summary'] ??
+                 attrs['subject'] ??
+                 extractInnerTag(body, 'summary') ??
+                 extractInnerTag(body, 'subject');
+
+             if (summary == null || summary.isEmpty) {
+               final plainBody = body.replaceAll(RegExp(r'<[^>]+>'), '').trim();
+               if (plainBody.isNotEmpty) {
+                 summary = plainBody;
+               }
+             }
+
+             int? durationMinutes;
+             final durationRaw = attrs['durationMinutes'] ??
+                 attrs['duration_minutes'] ??
+                 extractInnerTag(body, 'durationMinutes');
+             if (durationRaw != null) {
+               durationMinutes = int.tryParse(durationRaw);
+             }
+
+             if (durationMinutes == null && startTime != null && endTime != null) {
+               final start = DateTime.tryParse(startTime);
+               final end = DateTime.tryParse(endTime);
+               if (start != null && end != null) {
+                 final diff = end.difference(start).inMinutes;
+                 if (diff > 0) durationMinutes = diff;
+               }
+             }
+
+             actionsList.add(
+               AIResponseAction(
+                 type: type,
+                 summary: summary,
+                 startTime: startTime,
+                 durationMinutes: durationMinutes,
+                 recurrence: recurrence,
+                 message: message,
+                 notifyAt: notifyAt,
+               ),
+             );
+           }
+
+           final matches = actionBlock.allMatches(actionsStr);
+           for (final m in matches) {
+             appendParsedAction(
+               rawType: m.group(1) ?? '',
+               attrsRaw: m.group(2) ?? '',
+               bodyRaw: m.group(3) ?? '',
+             );
+           }
+
+           final selfMatches = selfClosingActionBlock.allMatches(actionsStr);
+           for (final m in selfMatches) {
+             appendParsedAction(
+               rawType: m.group(1) ?? '',
+               attrsRaw: m.group(2) ?? '',
+               bodyRaw: '',
+             );
+           }
+
+           if (actionsList.isEmpty) {
+             final bracketText = actionsStr
+                 .replaceAll('[', ' ')
+                 .replaceAll(']', ' ')
+                 .replaceAll('"', ' ')
+                 .trim();
+             final inferred = inferActionFromText(bracketText);
+             if (inferred != null) {
+               actionsList.add(inferred);
+             }
+           }
+       }
+     }
+
+     if (actionsList.isEmpty) {
+       final inferredFromVerbal = inferActionFromText(verbal);
+       if (inferredFromVerbal != null) {
+         actionsList.add(inferredFromVerbal);
+       }
+     }
+
+     // Parse Metrics
+     MetricDelta? metricDelta;
+     final metricsStr = extractTag('metric_delta');
+     if (metricsStr != null && metricsStr.isNotEmpty) {
+       try {
+         metricDelta = MetricDelta.fromJson(jsonDecode(metricsStr));
+       } catch (e) {
+         debugPrint("Failed to parse <metric_delta> JSON: $e");
+       }
+     }
+
+     // Parse Memory
+     MemoryUpdate? memoryUpdate;
+     final memoryStr = extractTag('memory_update');
+     if (memoryStr != null && memoryStr.isNotEmpty && memoryStr != 'null') {
+       try {
+         memoryUpdate = MemoryUpdate.fromJson(jsonDecode(memoryStr));
+       } catch (e) {
+         debugPrint("Failed to parse <memory_update> JSON: $e");
+       }
+     }
+
+     return AIResponse(
+       response: verbal,
+       thoughtProcess: thought,
+       actions: actionsList,
+       metricDelta: metricDelta,
+       memoryUpdate: memoryUpdate,
+     );
   }
 }

@@ -15,6 +15,8 @@ class MemoryService extends ChangeNotifier {
   static const kTimetable = 'timetable';
   static const kPreferences = 'preferences';
   static const kEnabledSegments = 'enabled_segments';
+  static const kJournalEntries = 'journal_entries';
+  static const kDeferredTasks = 'deferred_tasks';
 
   // Memory Segment Categories (for AI context)
   static const List<String> memoryCategories = [
@@ -39,7 +41,7 @@ class MemoryService extends ChangeNotifier {
     _memory[kEnabledSegments] = segments;
     await _saveMemory();
     notifyListeners();
-    print("MEMORY: Segment '$segment' ${enabled ? 'ENABLED' : 'DISABLED'}");
+    debugPrint("MEMORY: Segment '$segment' ${enabled ? 'ENABLED' : 'DISABLED'}");
   }
 
   /// Get all enabled segments for AI context filtering
@@ -74,12 +76,12 @@ class MemoryService extends ChangeNotifier {
         _memory = {}; // Start fresh
       }
     } catch (e) {
-      print("Memory Corruption: $e");
+      debugPrint("Memory Corruption: $e");
       _memory = {};
     }
   }
 
-  /// Recursively cast nested maps to Map<String, dynamic>
+  /// Recursively cast nested maps to a string-keyed dynamic map.
   Map<String, dynamic> _deepCast(dynamic data) {
     if (data is Map) {
       return data.map((key, value) {
@@ -100,7 +102,7 @@ class MemoryService extends ChangeNotifier {
       await file.writeAsString(jsonEncode(_memory));
       notifyListeners();
     } catch (e) {
-      print("Memory Write Error: $e");
+      debugPrint("Memory Write Error: $e");
     }
   }
 
@@ -249,7 +251,7 @@ class MemoryService extends ChangeNotifier {
     facts[key] = value;
     _memory[kFacts] = facts;
     await _saveMemory();
-    print("MEMORY: Learned Fact [$key] = $value");
+    debugPrint("MEMORY: Learned Fact [$key] = $value");
   }
 
   Future<void> forgetFact(String key) async {
@@ -263,6 +265,165 @@ class MemoryService extends ChangeNotifier {
 
   Map<String, dynamic> getFacts() {
     return _memory[kFacts] as Map<String, dynamic>? ?? {};
+  }
+
+  // --- JOURNAL STORE (VAULT) ---
+
+  Future<void> addJournalEntry(JournalEntry entry) async {
+    if (_memory[kJournalEntries] == null) {
+      _memory[kJournalEntries] = [];
+    }
+
+    final list = _memory[kJournalEntries] as List;
+    list.add(entry.toJson());
+
+    // Keep latest 200 entries to bound file growth.
+    if (list.length > 200) {
+      list.removeRange(0, list.length - 200);
+    }
+
+    _memory[kJournalEntries] = list;
+    await _saveMemory();
+  }
+
+  List<JournalEntry> getJournalEntries({int? limit}) {
+    if (_memory[kJournalEntries] == null) return [];
+
+    final items = (_memory[kJournalEntries] as List)
+        .map((e) => JournalEntry.fromJson(Map<String, dynamic>.from(e)))
+        .toList()
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+    if (limit == null || items.length <= limit) return items;
+    return items.take(limit).toList();
+  }
+
+  int getJournalStreakDays() {
+    final entries = getJournalEntries();
+    if (entries.isEmpty) return 0;
+
+    final uniqueDays = <DateTime>{};
+    for (final entry in entries) {
+      uniqueDays.add(DateTime(entry.timestamp.year, entry.timestamp.month, entry.timestamp.day));
+    }
+
+    int streak = 0;
+    final today = DateTime.now();
+    DateTime cursor = DateTime(today.year, today.month, today.day);
+
+    while (uniqueDays.contains(cursor)) {
+      streak++;
+      cursor = cursor.subtract(const Duration(days: 1));
+    }
+
+    return streak;
+  }
+
+  // --- DEFERRED TASKS ("I'LL START TOMORROW" MEMORY) ---
+
+  List<DeferredTask> getDeferredTasks({bool includeCompleted = false, int? limit}) {
+    if (_memory[kDeferredTasks] == null) return [];
+
+    var tasks = (_memory[kDeferredTasks] as List)
+        .map((e) => DeferredTask.fromJson(Map<String, dynamic>.from(e)))
+        .toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    if (!includeCompleted) {
+      tasks = tasks.where((t) => t.status != DeferredTaskStatus.completed).toList();
+    }
+
+    if (limit != null && tasks.length > limit) {
+      return tasks.take(limit).toList();
+    }
+    return tasks;
+  }
+
+  Future<void> addDeferredTask({
+    required String description,
+    String promisedFor = 'tomorrow',
+  }) async {
+    final trimmed = description.trim();
+    if (trimmed.isEmpty) return;
+
+    if (_memory[kDeferredTasks] == null) {
+      _memory[kDeferredTasks] = [];
+    }
+
+    final list = _memory[kDeferredTasks] as List;
+    final existingOpen = list
+        .map((e) => DeferredTask.fromJson(Map<String, dynamic>.from(e)))
+        .where((t) => t.status != DeferredTaskStatus.completed)
+        .any((t) => t.description.toLowerCase() == trimmed.toLowerCase());
+
+    if (existingOpen) return;
+
+    final task = DeferredTask(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      description: trimmed,
+      promisedFor: promisedFor,
+      status: DeferredTaskStatus.open,
+      createdAt: DateTime.now(),
+      startedAt: null,
+      completedAt: null,
+    );
+
+    list.add(task.toJson());
+
+    // Keep memory bounded.
+    if (list.length > 120) {
+      list.removeRange(0, list.length - 120);
+    }
+
+    _memory[kDeferredTasks] = list;
+    await _saveMemory();
+  }
+
+  Future<DeferredTask?> markLatestDeferredTaskStarted() async {
+    if (_memory[kDeferredTasks] == null) return null;
+
+    final list = (_memory[kDeferredTasks] as List)
+        .map((e) => DeferredTask.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+
+    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final idx = list.indexWhere((t) => t.status == DeferredTaskStatus.open);
+    if (idx == -1) return null;
+
+    final updated = list[idx].copyWith(
+      status: DeferredTaskStatus.started,
+      startedAt: DateTime.now(),
+    );
+    list[idx] = updated;
+
+    _memory[kDeferredTasks] = list.map((t) => t.toJson()).toList();
+    await _saveMemory();
+    return updated;
+  }
+
+  Future<DeferredTask?> markLatestDeferredTaskCompleted() async {
+    if (_memory[kDeferredTasks] == null) return null;
+
+    final list = (_memory[kDeferredTasks] as List)
+        .map((e) => DeferredTask.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+
+    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    int idx = list.indexWhere((t) => t.status == DeferredTaskStatus.started);
+    idx = idx == -1 ? list.indexWhere((t) => t.status == DeferredTaskStatus.open) : idx;
+    if (idx == -1) return null;
+
+    final updated = list[idx].copyWith(
+      status: DeferredTaskStatus.completed,
+      completedAt: DateTime.now(),
+      startedAt: list[idx].startedAt ?? DateTime.now(),
+    );
+    list[idx] = updated;
+
+    _memory[kDeferredTasks] = list.map((t) => t.toJson()).toList();
+    await _saveMemory();
+    return updated;
   }
 }
 
@@ -324,6 +485,121 @@ class PendingDebrief {
       eventId: json['eventId'],
       title: json['title'],
       endTime: DateTime.parse(json['endTime']),
+    );
+  }
+}
+
+class JournalEntry {
+  final String id;
+  final DateTime timestamp;
+  final String text;
+  final String mood;
+  final List<String> tags;
+  final int actionableCount;
+  final List<String> acceptedInsights;
+
+  JournalEntry({
+    required this.id,
+    required this.timestamp,
+    required this.text,
+    required this.mood,
+    required this.tags,
+    required this.actionableCount,
+    required this.acceptedInsights,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'timestamp': timestamp.toIso8601String(),
+    'text': text,
+    'mood': mood,
+    'tags': tags,
+    'actionableCount': actionableCount,
+    'acceptedInsights': acceptedInsights,
+  };
+
+  factory JournalEntry.fromJson(Map<String, dynamic> json) {
+    return JournalEntry(
+      id: json['id'] as String? ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      timestamp: DateTime.tryParse(json['timestamp'] as String? ?? '') ?? DateTime.now(),
+      text: json['text'] as String? ?? '',
+      mood: json['mood'] as String? ?? 'neutral',
+      tags: (json['tags'] as List?)?.map((e) => e.toString()).toList() ?? const [],
+      actionableCount: json['actionableCount'] as int? ?? 0,
+      acceptedInsights: (json['acceptedInsights'] as List?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
+    );
+  }
+}
+
+enum DeferredTaskStatus { open, started, completed }
+
+class DeferredTask {
+  final String id;
+  final String description;
+  final String promisedFor;
+  final DeferredTaskStatus status;
+  final DateTime createdAt;
+  final DateTime? startedAt;
+  final DateTime? completedAt;
+
+  DeferredTask({
+    required this.id,
+    required this.description,
+    required this.promisedFor,
+    required this.status,
+    required this.createdAt,
+    this.startedAt,
+    this.completedAt,
+  });
+
+  DeferredTask copyWith({
+    String? id,
+    String? description,
+    String? promisedFor,
+    DeferredTaskStatus? status,
+    DateTime? createdAt,
+    DateTime? startedAt,
+    DateTime? completedAt,
+  }) {
+    return DeferredTask(
+      id: id ?? this.id,
+      description: description ?? this.description,
+      promisedFor: promisedFor ?? this.promisedFor,
+      status: status ?? this.status,
+      createdAt: createdAt ?? this.createdAt,
+      startedAt: startedAt ?? this.startedAt,
+      completedAt: completedAt ?? this.completedAt,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'description': description,
+    'promisedFor': promisedFor,
+    'status': status.name,
+    'createdAt': createdAt.toIso8601String(),
+    'startedAt': startedAt?.toIso8601String(),
+    'completedAt': completedAt?.toIso8601String(),
+  };
+
+  factory DeferredTask.fromJson(Map<String, dynamic> json) {
+    final statusRaw = (json['status'] as String?) ?? 'open';
+    final status = DeferredTaskStatus.values.firstWhere(
+      (s) => s.name == statusRaw,
+      orElse: () => DeferredTaskStatus.open,
+    );
+
+    return DeferredTask(
+      id: json['id'] as String? ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      description: json['description'] as String? ?? '',
+      promisedFor: json['promisedFor'] as String? ?? 'tomorrow',
+      status: status,
+      createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
+      startedAt: json['startedAt'] != null ? DateTime.tryParse(json['startedAt'] as String) : null,
+      completedAt: json['completedAt'] != null ? DateTime.tryParse(json['completedAt'] as String) : null,
     );
   }
 }

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -9,34 +8,175 @@ import '../../core/memory_service.dart';
 import '../../ui/war_room_viewmodel.dart';
 import '../../ui/widgets/debrief_card.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import '../../ui/widgets/glass_card.dart';
 import '../../ui/widgets/chat_sheet.dart';
 import '../../ui/screens/memory_vault_screen.dart';
 
 class MissionTab extends StatelessWidget {
   const MissionTab({super.key});
 
-  // Premium Color Palette - High Contrast
-  static const kBackground = Color(0xFF000000);
-  static const kCardBg = Color(0xFF121212);          // Brighter card background
-  static const kCardBgHover = Color(0xFF181818);
-  static const kBorder = Color(0xFF2A2A2A);          // More visible borders
-  static const kBorderLight = Color(0xFF3A3A3A);
-  static const kBurgundy = Color(0xFFB91C32);        // Brighter burgundy
-  static const kBurgundyLight = Color(0xFFDC2F45);
-  static const kEmerald = Color(0xFF10B981);         // Brighter emerald
-  static const kEmeraldLight = Color(0xFF34D399);
-  static const kGold = Color(0xFFE5C158);
-  static const kTextPrimary = Color(0xFFFFFFFF);     // Pure white
-  static const kTextSecondary = Color(0xFFA3A3A3);   // Brighter secondary
-  static const kTextMuted = Color(0xFF737373);       // Less muted
+  // Premium Palette — warm, alive
+  static const kSurface = Color(0xFF060809);
+  static const kCardBg = Color(0xFF0E1114);
+  static const kCardBgElevated = Color(0xFF141820);
+  static const kBorder = Color(0xFF1E2430);
+  static const kAccent = Color(0xFF10B981);
+  static const kAccentLight = Color(0xFF34D399);
+  static const kAccentDim = Color(0xFF059669);
+  static const kWarm = Color(0xFFF59E0B);
+  static const kWarmLight = Color(0xFFFBBF24);
+  static const kRose = Color(0xFFF43F5E);
+  static const kBlue = Color(0xFF3B82F6);
+  static const kText = Color(0xFFFFFFFF);
+  static const kTextSecondary = Color(0xFFA3A3A3);
+  static const kTextMuted = Color(0xFF6B7280);
 
-  String _getGreeting() {
+  // --- Energy State Derivation ---
+  _EnergyState _deriveEnergyState(WarRoomViewModel vm) {
     final hour = DateTime.now().hour;
-    if (hour < 12) return "Good morning";
-    if (hour < 17) return "Good afternoon";
-    if (hour < 21) return "Good evening";
-    return "Good night";
+    final focusHours = vm.currentMetrics.focusMinutes / 60;
+
+    // Sleep-based: if user was active very late (wakeup protocol data)
+    // or early morning hours — they're likely tired
+    if (hour >= 0 && hour < 6) {
+      return _EnergyState(
+        level: 'low',
+        label: 'Rest mode',
+        suggestion: 'You should be sleeping. Rest is the best productivity hack.',
+        gradient: [const Color(0xFF1E1B4B), const Color(0xFF0F0D2E)],
+        icon: Icons.bedtime_rounded,
+      );
+    }
+    if (hour >= 6 && hour < 9) {
+      return _EnergyState(
+        level: 'rising',
+        label: 'Morning warmup',
+        suggestion: 'Your brain is waking up — light tasks first, deep work after 10.',
+        gradient: [const Color(0xFF1C1917), const Color(0xFF1A1307)],
+        icon: Icons.wb_twilight_rounded,
+      );
+    }
+    if (hour >= 9 && hour < 13) {
+      return _EnergyState(
+        level: 'peak',
+        label: 'Peak focus window',
+        suggestion: focusHours > 0.5
+            ? 'You\'re locked in — ${focusHours.toStringAsFixed(1)}h focused today. Keep going.'
+            : 'This is your best window for deep work. Start a focus session now.',
+        gradient: [const Color(0xFF052E16), const Color(0xFF022C22)],
+        icon: Icons.bolt_rounded,
+      );
+    }
+    if (hour >= 13 && hour < 15) {
+      return _EnergyState(
+        level: 'dip',
+        label: 'Post-lunch dip',
+        suggestion: 'Energy naturally dips now. Take a walk, then tackle lighter tasks.',
+        gradient: [const Color(0xFF1C1917), const Color(0xFF171310)],
+        icon: Icons.coffee_rounded,
+      );
+    }
+    if (hour >= 15 && hour < 18) {
+      return _EnergyState(
+        level: 'second_wind',
+        label: 'Second wind',
+        suggestion: focusHours > 2
+            ? 'Solid ${focusHours.toStringAsFixed(1)}h today. One more sprint before evening?'
+            : 'Afternoon energy is back. Good time for creative or review work.',
+        gradient: [const Color(0xFF0C1220), const Color(0xFF0A0E18)],
+        icon: Icons.trending_up_rounded,
+      );
+    }
+    if (hour >= 18 && hour < 21) {
+      return _EnergyState(
+        level: 'winding',
+        label: 'Evening wind-down',
+        suggestion: 'Start wrapping up. Journal your wins and plan tomorrow.',
+        gradient: [const Color(0xFF1A1020), const Color(0xFF120C18)],
+        icon: Icons.nights_stay_rounded,
+      );
+    }
+    return _EnergyState(
+      level: 'low',
+      label: 'Night mode',
+      suggestion: 'Time to rest. Your sleep quality affects tomorrow\'s focus.',
+      gradient: [const Color(0xFF0D0D1A), const Color(0xFF080812)],
+      icon: Icons.dark_mode_rounded,
+    );
+  }
+
+  // --- Contextual Suggestions ---
+  List<_Suggestion> _getContextualSuggestions(WarRoomViewModel vm, MemoryService memory) {
+    final hour = DateTime.now().hour;
+    final hasFocus = vm.isFocusSessionActive;
+    final focusHours = vm.currentMetrics.focusMinutes / 60;
+    final facts = memory.getFacts();
+    final hasGoal = (memory.getSegment('protocol') as Map?)?.containsKey('goal') ?? false;
+
+    final suggestions = <_Suggestion>[];
+
+    // Context-aware suggestions based on time and state
+    if (hasFocus) {
+      if (vm.currentMetrics.focusMinutes > 45) {
+        suggestions.add(_Suggestion(
+          icon: Icons.self_improvement_rounded,
+          title: 'Take a break',
+          subtitle: 'You\'ve been focused for ${(vm.currentMetrics.focusMinutes).toInt()}min. Move, hydrate.',
+          action: '/focus stop',
+          color: kWarm,
+        ));
+      }
+    } else if (hour >= 6 && hour < 12 && focusHours < 0.5) {
+      suggestions.add(_Suggestion(
+        icon: Icons.center_focus_strong_rounded,
+        title: 'Start deep work',
+        subtitle: 'Morning focus window is open. What are you working on?',
+        action: 'start_focus',
+        color: kAccent,
+      ));
+    }
+
+    if (hour >= 18 && hour < 23) {
+      suggestions.add(_Suggestion(
+        icon: Icons.edit_note_rounded,
+        title: 'Journal today',
+        subtitle: 'Capture wins, blockers, and tomorrow\'s plan.',
+        action: 'journal',
+        color: kBlue,
+      ));
+    }
+
+    if (hour >= 7 && hour < 10 && !hasGoal) {
+      suggestions.add(_Suggestion(
+        icon: Icons.flag_rounded,
+        title: 'Set your goal',
+        subtitle: 'What\'s the #1 thing to accomplish today?',
+        action: 'set_goal',
+        color: kWarm,
+      ));
+    }
+
+    if (facts.isEmpty) {
+      suggestions.add(_Suggestion(
+        icon: Icons.psychology_rounded,
+        title: 'Teach me about you',
+        subtitle: 'Tell Vyoma about your exams, routines, or preferences.',
+        action: 'chat',
+        color: kAccentLight,
+      ));
+    }
+
+    // Always show a chat option if we have room
+    if (suggestions.length < 3) {
+      suggestions.add(_Suggestion(
+        icon: Icons.chat_bubble_outline_rounded,
+        title: 'Chat with Vyoma',
+        subtitle: 'Plan, brainstorm, or just think out loud.',
+        action: 'chat',
+        color: kAccent,
+      ));
+    }
+
+    return suggestions.take(3).toList();
   }
 
   @override
@@ -46,261 +186,168 @@ class MissionTab extends StatelessWidget {
       child: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.only(bottom: 120),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHeader(context),
-              _buildHeroGreeting(context),
-              _buildQuickActions(context),
-              _buildTodaysFocus(context),
-              _buildMemoryPreview(context),
-              _buildDebriefSection(context),
-            ],
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720),
+              child: Consumer2<WarRoomViewModel, MemoryService>(
+                builder: (context, vm, memory, _) {
+                  final energy = _deriveEnergyState(vm);
+                  final suggestions = _getContextualSuggestions(vm, memory);
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildHeader(context, vm),
+                      _buildEnergyHero(context, energy, vm),
+                      _buildNextUp(context),
+                      _buildSuggestions(context, suggestions, vm),
+                      _buildSmartRecap(context, memory),
+                      _buildDebriefSection(context),
+                    ],
+                  );
+                },
+              ),
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, WarRoomViewModel vm) {
+    final now = DateTime.now();
+    final greeting = _getGreeting();
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 20, 28, 8),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Brand Badge
-          _buildPremiumBadge("◈  vyoma", kTextMuted),
-          // Status
-          Consumer<WarRoomViewModel>(
-            builder: (_, vm, __) => _buildStatusChip(
-              "${(vm.currentMetrics.focusMinutes / 60).toStringAsFixed(1)}h",
-              isActive: true,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPremiumBadge(String text, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: kCardBg,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: kBorder, width: 0.5),
-      ),
-      child: Text(
-        text,
-        style: GoogleFonts.inter(
-          color: color,
-          fontSize: 11,
-          fontWeight: FontWeight.w500,
-          letterSpacing: 1.2,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatusChip(String text, {bool isActive = false}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: isActive ? kEmerald.withOpacity(0.08) : kCardBg,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: isActive ? kEmerald.withOpacity(0.2) : kBorder,
-          width: 0.5,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(
-              color: isActive ? kEmerald : kTextMuted,
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            text,
-            style: GoogleFonts.jetBrainsMono(
-              color: isActive ? kEmeraldLight : kTextSecondary,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeroGreeting(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 32, 28, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            _getGreeting().toUpperCase(),
-            style: GoogleFonts.inter(
-              color: kTextMuted,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 2.5,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text.rich(
-            TextSpan(
-              style: GoogleFonts.dmSans(
-                fontSize: 36,
-                fontWeight: FontWeight.w600,
-                color: kTextPrimary,
-                height: 1.15,
-                letterSpacing: -0.5,
-              ),
-              children: const [
-                TextSpan(text: "What will you\n"),
-                TextSpan(
-                  text: "create ",
-                  style: TextStyle(fontWeight: FontWeight.w300, color: Color(0xFFD4D4D4)),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                greeting,
+                style: GoogleFonts.inter(
+                  color: kTextMuted,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
                 ),
-                TextSpan(text: "today?"),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                DateFormat('EEEE, MMMM d').format(now),
+                style: GoogleFonts.inter(
+                  color: kText,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.3,
+                ),
+              ),
+            ],
+          ),
+          // Focus hours badge
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: kAccent.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: kAccent.withValues(alpha: 0.15)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.bolt_rounded, color: kAccentLight, size: 14),
+                const SizedBox(width: 5),
+                Text(
+                  '${(vm.currentMetrics.focusMinutes / 60).toStringAsFixed(1)}h',
+                  style: GoogleFonts.jetBrainsMono(
+                    color: kAccentLight,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ],
             ),
           ),
         ],
       ),
-    ).animate().fadeIn(duration: 400.ms, delay: 100.ms);
+    ).animate().fadeIn(duration: 400.ms);
   }
 
-  Widget _buildQuickActions(BuildContext context) {
-    final actions = [
-      {'icon': '◇', 'label': 'Chat', 'action': 'Chat'},
-      {'icon': '◈', 'label': 'Memories', 'action': 'Memories'},
-      {'icon': '▣', 'label': 'Schedule', 'action': 'Schedule'},
-      {'icon': '◎', 'label': 'Intel', 'action': 'Insights'},
-    ];
-
+  Widget _buildEnergyHero(BuildContext context, _EnergyState energy, WarRoomViewModel vm) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 32, 28, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            "ACTIONS",
-            style: GoogleFonts.inter(
-              color: kTextMuted,
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 2.0,
-            ),
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: energy.gradient,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-          const SizedBox(height: 16),
-          Row(
-            children: actions.asMap().entries.map((entry) {
-              final i = entry.key;
-              final action = entry.value;
-              return Expanded(
-                child: Padding(
-                  padding: EdgeInsets.only(right: i < actions.length - 1 ? 10 : 0),
-                  child: _buildActionCard(
-                    context,
-                    icon: action['icon'] as String,
-                    label: action['label'] as String,
-                    onTap: () => _handleQuickAction(context, action['action'] as String),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                ).animate(delay: (80 * i).ms).fadeIn().slideY(begin: 0.15),
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActionCard(BuildContext context, {
-    required String icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: () {
-          HapticFeedback.lightImpact();
-          onTap();
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 20),
-          decoration: BoxDecoration(
-            color: kCardBg,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: kBorder, width: 0.5),
-          ),
-          child: Column(
-            children: [
-              Text(
-                icon,
-                style: GoogleFonts.inter(
-                  color: kTextSecondary,
-                  fontSize: 18,
+                  child: Icon(energy.icon, color: Colors.white.withValues(alpha: 0.8), size: 18),
                 ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                label.toUpperCase(),
-                style: GoogleFonts.inter(
-                  color: kTextSecondary,
-                  fontSize: 9,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 1.0,
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      energy.label.toUpperCase(),
+                      style: GoogleFonts.inter(
+                        color: Colors.white.withValues(alpha: 0.5),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Energy: ${energy.level.replaceAll('_', ' ')}',
+                      style: GoogleFonts.inter(
+                        color: Colors.white.withValues(alpha: 0.85),
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              energy.suggestion,
+              style: GoogleFonts.inter(
+                color: Colors.white.withValues(alpha: 0.65),
+                fontSize: 14,
+                height: 1.5,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
-    );
+    ).animate().fadeIn(duration: 500.ms, delay: 100.ms).slideY(begin: 0.05);
   }
 
-  void _handleQuickAction(BuildContext context, String action) {
-    switch (action) {
-      case 'Chat':
-        Navigator.of(context).push(
-          PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) => const ChatSheet(),
-            transitionsBuilder: (context, animation, secondaryAnimation, child) {
-              return SlideTransition(
-                position: animation.drive(
-                  Tween(begin: const Offset(0.0, 1.0), end: Offset.zero)
-                    .chain(CurveTween(curve: Curves.easeOutQuart))
-                ),
-                child: child,
-              );
-            },
-          ),
-        );
-        break;
-      case 'Memories':
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const MemoryVaultScreen()),
-        );
-        break;
-      case 'Schedule':
-        break;
-      case 'Insights':
-        break;
-    }
-  }
-
-  Widget _buildTodaysFocus(BuildContext context) {
+  Widget _buildNextUp(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 32, 28, 8),
+      padding: const EdgeInsets.fromLTRB(24, 28, 24, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -308,12 +355,12 @@ class MissionTab extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                "TODAY",
+                'NEXT UP',
                 style: GoogleFonts.inter(
                   color: kTextMuted,
-                  fontSize: 10,
+                  fontSize: 11,
                   fontWeight: FontWeight.w600,
-                  letterSpacing: 2.0,
+                  letterSpacing: 1.5,
                 ),
               ),
               Text(
@@ -326,19 +373,46 @@ class MissionTab extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           FutureBuilder<List<calendar.Event>>(
             future: Provider.of<CalendarService>(context, listen: false).syncEvents(),
             builder: (context, snapshot) {
               if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                return _buildEmptyFocusCard();
+                return _buildEmptySchedule();
               }
+
+              final now = DateTime.now();
+              // Sort by start time, show upcoming + currently active
+              final events = snapshot.data!
+                  .where((e) => e.start?.dateTime != null)
+                  .where((e) {
+                    final end = e.end?.dateTime ?? e.start!.dateTime!.add(const Duration(hours: 1));
+                    final startLocal = e.start!.dateTime!.toLocal();
+                    final endLocal = end.toLocal();
+                    
+                    final isStartToday = startLocal.year == now.year && startLocal.month == now.month && startLocal.day == now.day;
+                    final isEndToday = endLocal.year == now.year && endLocal.month == now.month && endLocal.day == now.day;
+                    
+                    return (isStartToday || isEndToday) && end.isAfter(now); // Strictly show today's remaining active + future events
+                  })
+                  .toList()
+                ..sort((a, b) => (a.start!.dateTime!).compareTo(b.start!.dateTime!));
+
+              if (events.isEmpty) return _buildEmptySchedule();
+
               return Column(
-                children: snapshot.data!.take(3).toList().asMap().entries.map((e) {
+                children: events.take(4).toList().asMap().entries.map((e) {
+                  final event = e.value;
+                  final isActive = event.start!.dateTime!.isBefore(now) &&
+                      (event.end?.dateTime?.isAfter(now) ?? false);
+                  final isNext = !isActive && e.key == 0 || 
+                      (!isActive && e.key > 0 && events.take(e.key).every(
+                        (prev) => prev.end?.dateTime?.isBefore(now) ?? true));
+
                   return Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _buildEventCard(e.value, e.key),
-                  ).animate(delay: (100 * e.key).ms).fadeIn().slideX(begin: 0.05);
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _buildTimelineEvent(event, isActive: isActive, isNext: isNext),
+                  ).animate(delay: (80 * e.key).ms).fadeIn().slideX(begin: 0.04);
                 }).toList(),
               );
             },
@@ -348,175 +422,353 @@ class MissionTab extends StatelessWidget {
     ).animate().fadeIn(delay: 200.ms);
   }
 
-  Widget _buildEmptyFocusCard() {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: kCardBg,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: kBorder, width: 0.5),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: kEmerald.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Center(
-                child: Text(
-                  "＋",
-                  style: GoogleFonts.inter(
-                    color: kEmerald,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w300,
+  Widget _buildTimelineEvent(calendar.Event event, {
+    required bool isActive,
+    required bool isNext,
+  }) {
+    final startDt = event.start?.dateTime;
+    final endDt = event.end?.dateTime;
+    final now = DateTime.now();
+
+    // Progress for active events
+    double progress = 0;
+    if (isActive && startDt != null && endDt != null) {
+      final total = endDt.difference(startDt).inMinutes;
+      final elapsed = now.difference(startDt).inMinutes;
+      progress = total > 0 ? (elapsed / total).clamp(0.0, 1.0) : 0;
+    }
+
+    // Countdown for next event
+    String? countdown;
+    if (isNext && startDt != null) {
+      final mins = startDt.difference(now).inMinutes;
+      if (mins > 0 && mins < 120) {
+        countdown = 'in ${mins}min';
+      } else if (mins >= 120) {
+        countdown = 'in ${(mins / 60).toStringAsFixed(0)}h';
+      }
+    }
+
+    final borderColor = isActive
+        ? kAccent.withValues(alpha: 0.3)
+        : isNext
+            ? kWarm.withValues(alpha: 0.2)
+            : kBorder;
+    final bgColor = isActive
+        ? kAccent.withValues(alpha: 0.04)
+        : isNext
+            ? kWarm.withValues(alpha: 0.03)
+            : kCardBg;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: borderColor, width: isActive ? 1 : 0.5),
+      ),
+      child: Row(
+        children: [
+          // Time column
+          SizedBox(
+            width: 52,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _formatTime(startDt),
+                  style: GoogleFonts.jetBrainsMono(
+                    color: isActive ? kAccentLight : kTextSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "No events scheduled",
-                    style: GoogleFonts.inter(
-                      color: kTextPrimary,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
+                if (isActive) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: kAccent.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(4),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    "Chat with Vyoma to plan your day",
-                    style: GoogleFonts.inter(
-                      color: kTextMuted,
-                      fontSize: 12,
+                    child: Text(
+                      'NOW',
+                      style: GoogleFonts.inter(
+                        color: kAccentLight,
+                        fontSize: 8,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
+                      ),
                     ),
                   ),
                 ],
-              ),
+                if (countdown != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    countdown,
+                    style: GoogleFonts.inter(
+                      color: kWarm.withValues(alpha: 0.7),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ],
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEventCard(calendar.Event event, int index) {
-    final now = DateTime.now();
-    final startTime = event.start?.dateTime;
-    final isActive = startTime != null && 
-        startTime.isBefore(now) && 
-        (event.end?.dateTime?.isAfter(now) ?? false);
-
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: isActive ? kBurgundy.withOpacity(0.06) : kCardBg,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isActive ? kBurgundy.withOpacity(0.25) : kBorder,
-            width: isActive ? 1 : 0.5,
           ),
-        ),
-        child: Row(
-          children: [
-            // Time Column
-            SizedBox(
-              width: 52,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _formatTime(event.start?.dateTime),
-                    style: GoogleFonts.jetBrainsMono(
-                      color: isActive ? kBurgundyLight : kTextSecondary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (isActive) ...[
-                    const SizedBox(height: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: kBurgundy.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        "LIVE",
-                        style: GoogleFonts.inter(
-                          color: kBurgundyLight,
-                          fontSize: 8,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+          // Timeline dot + line
+          Container(
+            width: 1,
+            height: isActive ? 44 : 36,
+            margin: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              color: isActive ? kAccent.withValues(alpha: 0.3) : kBorder,
+              borderRadius: BorderRadius.circular(1),
             ),
-            // Vertical Line
-            Container(
-              width: 1,
-              height: 36,
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              color: isActive ? kBurgundy.withOpacity(0.3) : kBorder,
-            ),
-            // Content
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    event.summary ?? "Untitled",
-                    style: GoogleFonts.inter(
-                      color: kTextPrimary,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+          ),
+          // Content
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  event.summary ?? 'Untitled',
+                  style: GoogleFonts.inter(
+                    color: kText,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
                   ),
-                  const SizedBox(height: 4),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                if (isActive && progress > 0)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(2),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      backgroundColor: Colors.white.withValues(alpha: 0.06),
+                      valueColor: AlwaysStoppedAnimation(kAccent.withValues(alpha: 0.6)),
+                      minHeight: 3,
+                    ),
+                  )
+                else
                   Text(
-                    "${_formatTime(event.start?.dateTime)} → ${_formatTime(event.end?.dateTime)}",
+                    '${_formatTime(startDt)} → ${_formatTime(endDt)}',
                     style: GoogleFonts.inter(
                       color: kTextMuted,
                       fontSize: 11,
                     ),
                   ),
-                ],
-              ),
+              ],
             ),
-            // Arrow
-            Text(
-              "→",
-              style: GoogleFonts.inter(
-                color: kTextMuted,
-                fontSize: 16,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildMemoryPreview(BuildContext context) {
+  Widget _buildEmptySchedule() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: kCardBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: kBorder, width: 0.5),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: kAccent.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(Icons.calendar_today_rounded, color: kAccentDim, size: 18),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'No events coming up',
+                  style: GoogleFonts.inter(
+                    color: kText,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Chat with Vyoma to plan your day',
+                  style: GoogleFonts.inter(color: kTextMuted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSuggestions(BuildContext context, List<_Suggestion> suggestions, WarRoomViewModel vm) {
+    if (suggestions.isEmpty) return const SizedBox.shrink();
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 32, 28, 8),
+      padding: const EdgeInsets.fromLTRB(24, 28, 24, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'SUGGESTED',
+            style: GoogleFonts.inter(
+              color: kTextMuted,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1.5,
+            ),
+          ),
+          const SizedBox(height: 14),
+          ...suggestions.asMap().entries.map((e) {
+            final s = e.value;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  splashColor: s.color.withValues(alpha: 0.06),
+                  onTap: () => _handleSuggestion(context, s.action, vm),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: kCardBg,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: kBorder, width: 0.5),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: s.color.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(s.icon, color: s.color.withValues(alpha: 0.7), size: 18),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                s.title,
+                                style: GoogleFonts.inter(
+                                  color: kText.withValues(alpha: 0.9),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                s.subtitle,
+                                style: GoogleFonts.inter(
+                                  color: kTextMuted,
+                                  fontSize: 11.5,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                        Icon(Icons.arrow_forward_ios_rounded, color: Colors.white12, size: 14),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ).animate(delay: (80 * e.key).ms).fadeIn().slideX(begin: 0.04);
+          }),
+        ],
+      ),
+    ).animate().fadeIn(delay: 300.ms);
+  }
+
+  Widget _buildSmartRecap(BuildContext context, MemoryService memory) {
+    final facts = memory.getFacts();
+    if (facts.isEmpty) return const SizedBox.shrink();
+
+    // Find deadline-type memories and show countdowns
+    final recapItems = <Widget>[];
+
+    for (final entry in facts.entries.take(3)) {
+      final key = entry.key;
+      final value = entry.value.toString();
+      final displayKey = key.replaceAll('_', ' ');
+
+      recapItems.add(
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: kCardBg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: kBorder, width: 0.5),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: kAccent.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: Icon(Icons.lightbulb_outline_rounded, color: kAccentDim, size: 14),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      displayKey,
+                      style: GoogleFonts.inter(
+                        color: kTextMuted,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      value,
+                      style: GoogleFonts.inter(
+                        color: kTextSecondary,
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 28, 24, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -524,12 +776,12 @@ class MissionTab extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                "MEMORY",
+                'MEMORY',
                 style: GoogleFonts.inter(
                   color: kTextMuted,
-                  fontSize: 10,
+                  fontSize: 11,
                   fontWeight: FontWeight.w600,
-                  letterSpacing: 2.0,
+                  letterSpacing: 1.5,
                 ),
               ),
               MouseRegion(
@@ -539,124 +791,25 @@ class MissionTab extends StatelessWidget {
                     MaterialPageRoute(builder: (_) => const MemoryVaultScreen()),
                   ),
                   child: Text(
-                    "VIEW ALL →",
+                    'See all →',
                     style: GoogleFonts.inter(
-                      color: kTextSecondary,
-                      fontSize: 10,
+                      color: kTextMuted,
+                      fontSize: 11,
                       fontWeight: FontWeight.w500,
-                      letterSpacing: 1.0,
                     ),
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          Consumer<MemoryService>(
-            builder: (context, memory, _) {
-              final facts = memory.getFacts();
-              if (facts.isEmpty) {
-                return Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: kCardBg,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: kBorder, width: 0.5),
-                  ),
-                  child: Row(
-                    children: [
-                      Text(
-                        "◇",
-                        style: GoogleFonts.inter(color: kTextMuted, fontSize: 16),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Text(
-                          "Vyoma learns about you as you chat",
-                          style: GoogleFonts.inter(color: kTextMuted, fontSize: 13),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }
-              
-              final recentFacts = facts.entries.take(3).toList();
-              return Column(
-                children: recentFacts.asMap().entries.map((e) {
-                  final i = e.key;
-                  final fact = e.value;
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: _buildMemoryItem(fact.key, fact.value.toString()),
-                  ).animate(delay: (80 * i).ms).fadeIn().slideX(begin: 0.05);
-                }).toList(),
-              );
-            },
-          ),
+          const SizedBox(height: 14),
+          ...recapItems.asMap().entries.map((e) => Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: e.value,
+          ).animate(delay: (60 * e.key).ms).fadeIn()),
         ],
       ),
-    ).animate().fadeIn(delay: 300.ms);
-  }
-
-  Widget _buildMemoryItem(String key, String value) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: kCardBg,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: kBorder, width: 0.5),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: kEmerald.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Center(
-              child: Text(
-                "◈",
-                style: GoogleFonts.inter(color: kEmeraldLight, fontSize: 12),
-              ),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  key.replaceAll('_', ' ').toUpperCase(),
-                  style: GoogleFonts.inter(
-                    color: kTextMuted,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  style: GoogleFonts.inter(
-                    color: kTextSecondary,
-                    fontSize: 12,
-                    height: 1.4,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+    ).animate().fadeIn(delay: 400.ms);
   }
 
   Widget _buildDebriefSection(BuildContext context) {
@@ -667,11 +820,12 @@ class MissionTab extends StatelessWidget {
 
         final debrief = pending.first;
         return Padding(
-          padding: const EdgeInsets.fromLTRB(28, 24, 28, 8),
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
           child: DebriefCard(
             title: debrief.title,
             eventId: debrief.eventId,
             onReport: () async {
+              final warRoom = Provider.of<WarRoomViewModel>(context, listen: false);
               await memory.removePendingDebrief(debrief.eventId);
               if (context.mounted) {
                 Navigator.of(context).push(
@@ -689,9 +843,7 @@ class MissionTab extends StatelessWidget {
                   ),
                 );
                 Future.delayed(const Duration(milliseconds: 500), () {
-                  Provider.of<WarRoomViewModel>(context, listen: false).submitCommand(
-                    "I am reporting for debrief on: '${debrief.title}'"
-                  );
+                  warRoom.submitCommand("I am reporting for debrief on: '${debrief.title}'");
                 });
               }
             },
@@ -701,8 +853,87 @@ class MissionTab extends StatelessWidget {
     );
   }
 
-  String _formatTime(DateTime? dt) {
-    if (dt == null) return "--:--";
-    return DateFormat('HH:mm').format(dt);
+  void _handleSuggestion(BuildContext context, String action, WarRoomViewModel vm) {
+    switch (action) {
+      case 'chat':
+      case 'start_focus':
+        _openChat(context);
+        break;
+      case 'journal':
+        // Switch to vault tab via parent
+        break;
+      case 'set_goal':
+        _openChat(context);
+        Future.delayed(const Duration(milliseconds: 500), () {
+          vm.submitCommand('/goal ');
+        });
+        break;
+    }
   }
+
+  void _openChat(BuildContext context) {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => const ChatSheet(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return SlideTransition(
+            position: animation.drive(
+              Tween(begin: const Offset(0.0, 1.0), end: Offset.zero)
+                .chain(CurveTween(curve: Curves.easeOutQuart))
+            ),
+            child: child,
+          );
+        },
+      ),
+    );
+  }
+
+  String _getGreeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    if (hour < 21) return 'Good evening';
+    return 'Good night';
+  }
+
+  String _formatTime(DateTime? dt) {
+    if (dt == null) return '--:--';
+    final h = dt.hour.toString().padLeft(2, '0');
+    final m = dt.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+}
+
+// --- Data Models ---
+
+class _EnergyState {
+  final String level;
+  final String label;
+  final String suggestion;
+  final List<Color> gradient;
+  final IconData icon;
+
+  const _EnergyState({
+    required this.level,
+    required this.label,
+    required this.suggestion,
+    required this.gradient,
+    required this.icon,
+  });
+}
+
+class _Suggestion {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String action;
+  final Color color;
+
+  const _Suggestion({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.action,
+    required this.color,
+  });
 }

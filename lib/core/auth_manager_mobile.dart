@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart' as gsi;
 import 'package:googleapis/calendar/v3.dart';
 import 'package:http/http.dart' as http;
@@ -18,8 +19,17 @@ class AuthManagerMobile implements AuthManager {
 
   @override
   Future<http.Client> getAuthenticatedClient() async {
-    _currentUser ??= await _googleSignIn.signInSilently();
-    _currentUser ??= await _googleSignIn.signIn();
+    try {
+      _currentUser ??= await _googleSignIn.signInSilently();
+      _currentUser ??= await _googleSignIn.signIn();
+    } on PlatformException catch (e) {
+      if (Platform.isAndroid) {
+        throw Exception(
+          'Google sign-in failed on Android (${e.code}). Verify OAuth setup: package name + SHA-1 in Google Cloud and add android/app/google-services.json.',
+        );
+      }
+      rethrow;
+    }
     
     if (_currentUser == null) {
       throw Exception('User declined sign in');

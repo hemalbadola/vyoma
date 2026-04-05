@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'memory_service.dart';
 
 class ChronosService {
@@ -48,9 +47,9 @@ class ChronosService {
     
     switch (status) {
       case TemporalStatus.longAbsence:
-        return "CRITICAL PROTOCOL: User was MIA for ${gap.inDays} days. Assume negligence. Demand immediate status report.";
+        return "CONTEXT: The user is returning after ${gap.inDays} days. Re-orient gently and help restart with one clear next step.";
       case TemporalStatus.awol:
-        return "WARNING: User was AWOL for ${gap.inHours} hours. Verify if tasks were abandoned.";
+        return "CONTEXT: The user has been away for ${gap.inHours} hours. Check progress calmly and suggest a realistic restart.";
       case TemporalStatus.newDay:
         return "CONTEXT: New operational cycle detected. Gap: ${gap.inHours} hours.";
       case TemporalStatus.active:

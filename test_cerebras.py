@@ -2,7 +2,9 @@ import os
 import requests
 import json
 
-api_key = "csk-ktn935p5cy3w6ryj5ktdjcpexfw23e6mvfkpmnjkwkcc32w4"
+api_key = os.getenv('VYOMA_CEREBRAS_API_KEY', '').strip()
+if not api_key:
+    raise SystemExit('Missing VYOMA_CEREBRAS_API_KEY environment variable.')
 
 url = "https://api.cerebras.ai/v1/chat/completions"
 headers = {

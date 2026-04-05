@@ -19,7 +19,7 @@ Vyoma is not just another productivity app — it is a **contemplative AI presen
 - **Time-aware conversations** — Every response naturally references current time, day, and context
 - **Time gap detection** — If you return after 30+ minutes with an active task, Vyoma asks what happened
 - **Selective memory** — Only saves what you explicitly ask to remember, or truly critical life info
-- **Multi-provider fallback** — Gemini 2.5 Flash → OpenAI → Perplexity
+- **Multi-provider fallback** — Nvidia NIM → Grok → Gemini
 
 ### 📅 Calendar Integration
 - **Google Calendar sync** — Create, move, delete events via natural language
@@ -33,15 +33,15 @@ Vyoma is not just another productivity app — it is a **contemplative AI presen
 
 ### 📊 Productivity Metrics
 - **Focus tracking** — Minutes of focused work
+- **Explicit focus sessions** — Start/stop intentional focus runs (`/focus start`, `/focus stop`, `/focus status`)
 - **Distraction counter** — Tracks diversions
 - **Tasks completed** — Manual or AI-updated
 - **Activity log** — Full history of actions
 
 ### 🔔 Proactive Intelligence (Sentinel/Watchtower)
-- **Morning briefs** — AI-generated poetic overview of your day
-- **Event reminders** — Alerts before calendar events
-- **End-of-day reviews** — Reflective closings
-- **Focus drift detection** — Notifies when you've been on distracting apps
+- **Debrief prompts** — Reflection prompts after events end
+- **Pending notification restore** — Restores queued reminders on app restart
+- **Focus check nudges** — Periodic check-ins to re-anchor current focus
 
 ### 🎨 Premium UI
 - **Pure black background** with subtle emerald/burgundy accents
@@ -226,21 +226,34 @@ lib/
    ```
 
 2. **Configure API Keys**
-   ```bash
-   cp lib/core/secrets.dart.example lib/core/secrets.dart
-   ```
+    Use `--dart-define` at build/run time instead of hardcoding keys:
+
+    ```bash
+    flutter run \
+       --dart-define=VYOMA_GEMINI_API_KEYS=key1,key2 \
+       --dart-define=VYOMA_NVIDIA_API_KEYS=nvkey1 \
+       --dart-define=VYOMA_GROK_API_KEYS=xkey1 \
+       --dart-define=VYOMA_SUPERMEMORY_API_KEY=sm_key
+    ```
+
+    For OAuth:
+    ```bash
+    flutter run \
+       --dart-define=VYOMA_DESKTOP_CLIENT_ID=... \
+       --dart-define=VYOMA_DESKTOP_CLIENT_SECRET=... \
+       --dart-define=VYOMA_IOS_CLIENT_ID=... \
+       --dart-define=VYOMA_ANDROID_CLIENT_ID=...
+    ```
+
+    For production security, route LLM requests through your backend instead of shipping provider keys in the client.
+
+3. **Android Google Sign-In Setup**
+    - Ensure `applicationId` matches your Android OAuth client package.
+    - Add SHA-1/SHA-256 fingerprints in Google Cloud Console.
+    - Add `android/app/google-services.json` for the same project.
+    - If sign-in fails with `10` / `DEVELOPER_ERROR`, this config is usually the cause.
    
-   Edit `lib/core/secrets.dart`:
-   ```dart
-   class Secrets {
-     static const List<String> geminiApiKeys = ['your-gemini-key'];
-     static const List<String> openAiApiKeys = ['your-openai-key'];
-     static const String supermemoryApiKey = 'your-supermemory-key';
-     // ... other keys
-   }
-   ```
-   
-   **Required Keys:**
+4. **Required Keys:**
    | Key | Source | Purpose |
    |-----|--------|---------|
    | Gemini | [Google AI Studio](https://aistudio.google.com/apikey) | Primary AI (gemini-2.5-flash) |
@@ -248,12 +261,12 @@ lib/
    | Supermemory | [Supermemory](https://supermemory.ai) | Long-term vector memory |
    | Google OAuth | [Cloud Console](https://console.cloud.google.com) | Calendar access |
 
-3. **Install dependencies**
+5. **Install dependencies**
    ```bash
    flutter pub get
    ```
 
-4. **Run the app**
+6. **Run the app**
    ```bash
    flutter run -d macos  # or ios, android, etc.
    ```

@@ -50,7 +50,7 @@ class GlassCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(borderRadius),
         boxShadow: [
           BoxShadow(
-            color: glow.withOpacity(0.12),
+            color: glow.withValues(alpha: 0.12),
             blurRadius: 20,
             spreadRadius: -6,
           ),

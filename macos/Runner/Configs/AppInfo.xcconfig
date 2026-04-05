@@ -5,10 +5,10 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = Vyomaadra
+PRODUCT_NAME = Vyoma
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.vyomaadra.app
+PRODUCT_BUNDLE_IDENTIFIER = com.vyoma.app
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 Vyomaadra. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 Vyoma. All rights reserved.
