@@ -24,6 +24,13 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - name: Prepare Secrets Stub
+        shell: bash
+        run: |
+          if [ ! -f lib/core/secrets.dart ]; then
+            cp lib/core/secrets.dart.example lib/core/secrets.dart
+          fi
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -49,6 +56,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+
+      - name: Prepare Secrets Stub
+        shell: bash
+        run: |
+          if [ ! -f lib/core/secrets.dart ]; then
+            cp lib/core/secrets.dart.example lib/core/secrets.dart
+          fi
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
