@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:http/http.dart' as http;
@@ -25,9 +24,13 @@ class ProductivityMetrics {
     required this.distractionCount,
     required this.tasksCompleted,
   });
-  
-  factory ProductivityMetrics.initial() => ProductivityMetrics(focusMinutes: 0, distractionCount: 0, tasksCompleted: 0);
-  
+
+  factory ProductivityMetrics.initial() => ProductivityMetrics(
+    focusMinutes: 0,
+    distractionCount: 0,
+    tasksCompleted: 0,
+  );
+
   factory ProductivityMetrics.fromJson(Map<String, dynamic> json) {
     return ProductivityMetrics(
       focusMinutes: json['focus_minutes'] ?? 0,
@@ -43,7 +46,8 @@ class ProductivityMetrics {
   };
 
   @override
-  String toString() => '{ "focus": $focusMinutes, "distractions": $distractionCount, "tasks": $tasksCompleted }';
+  String toString() =>
+      '{ "focus": $focusMinutes, "distractions": $distractionCount, "tasks": $tasksCompleted }';
 }
 
 class MetricDelta {
@@ -53,10 +57,10 @@ class MetricDelta {
   final String note;
 
   MetricDelta({
-    required this.focusChange, 
+    required this.focusChange,
     this.distractionChange = 0,
     this.taskChange = 0,
-    required this.note
+    required this.note,
   });
 
   factory MetricDelta.fromJson(Map<String, dynamic> json) {
@@ -80,9 +84,9 @@ class AIResponseAction {
   final List<TimetableSlot>? slots;
 
   AIResponseAction({
-    required this.type, 
-    this.summary, 
-    this.startTime, 
+    required this.type,
+    this.summary,
+    this.startTime,
     this.durationMinutes,
     this.recurrence,
     this.message,
@@ -108,11 +112,16 @@ class AIResponseAction {
   }
 
   static String _inferActionType(Map<String, dynamic> json) {
-    final normalized = _normalizeActionType((json['type'] ?? json['action'] ?? '').toString());
+    final normalized = _normalizeActionType(
+      (json['type'] ?? json['action'] ?? '').toString(),
+    );
     if (normalized != 'none') return normalized;
 
     if (json['slots'] is List) return 'update_timetable';
-    if (json['notifyAt'] != null || json['notify_at'] != null || json['message'] != null) return 'notify';
+    if (json['notifyAt'] != null ||
+        json['notify_at'] != null ||
+        json['message'] != null)
+      return 'notify';
     if (json['new_time'] != null || json['time'] != null) return 'move';
 
     final desc = (json['description'] ?? '').toString().toLowerCase();
@@ -126,16 +135,33 @@ class AIResponseAction {
   factory AIResponseAction.fromJson(Map<String, dynamic> json) {
     List<TimetableSlot>? parsedSlots;
     if (json['slots'] != null && json['slots'] is List) {
-      parsedSlots = (json['slots'] as List).map((e) => TimetableSlot.fromJson(e)).toList();
+      parsedSlots = (json['slots'] as List)
+          .map((e) => TimetableSlot.fromJson(e))
+          .toList();
     }
-  
+
     return AIResponseAction(
       type: _inferActionType(json),
-      summary: (json['summary'] ?? json['subject'] ?? json['title'] ?? json['name'] ?? json['event'])?.toString(),
-      startTime: (json['startTime'] ?? json['start_time'] ?? json['start'] ?? json['new_time'] ?? json['time'])?.toString(),
+      summary:
+          (json['summary'] ??
+                  json['subject'] ??
+                  json['title'] ??
+                  json['name'] ??
+                  json['event'])
+              ?.toString(),
+      startTime:
+          (json['startTime'] ??
+                  json['start_time'] ??
+                  json['start'] ??
+                  json['new_time'] ??
+                  json['time'])
+              ?.toString(),
       durationMinutes: json['durationMinutes'] is int
           ? json['durationMinutes'] as int
-          : int.tryParse((json['durationMinutes'] ?? json['duration_minutes'] ?? '').toString()),
+          : int.tryParse(
+              (json['durationMinutes'] ?? json['duration_minutes'] ?? '')
+                  .toString(),
+            ),
       recurrence: (json['recurrence'] ?? json['rrule'])?.toString(),
       message: (json['message'] ?? json['body'])?.toString(),
       notifyAt: (json['notifyAt'] ?? json['notify_at'])?.toString(),
@@ -163,23 +189,20 @@ class MemoryUpdate {
 class AIResponse {
   final String response;
   final String? thoughtProcess;
-  final List<AIResponseAction> actions; 
+  final List<AIResponseAction> actions;
   final MetricDelta? metricDelta;
   final MemoryUpdate? memoryUpdate;
 
   AIResponse({
     required this.response,
     this.thoughtProcess,
-    this.actions = const [], 
+    this.actions = const [],
     this.metricDelta,
     this.memoryUpdate,
   });
 
   factory AIResponse.error(String message) {
-    return AIResponse(
-      response: message,
-      actions: [],
-    );
+    return AIResponse(response: message, actions: []);
   }
 
   factory AIResponse.fromJson(Map<String, dynamic> json) {
@@ -217,30 +240,14 @@ class AIService with ChangeNotifier {
   static const int _maxTimelineTextLen = 90;
   static const String _supermemoryMetaKey = 'supermemory_meta';
 
-  GenerativeModel? _geminiModel;
-  int _geminiKeyIndex = 0;
   final MemoryService _memory;
   MemoryService get memory => _memory;
-  
-  // Smart key rotation: track which keys failed recently (cooldown)
-  final Map<int, DateTime> _geminiKeyCooldowns = {};
-  final Map<int, String> _keyStates = {}; // Track status: "Active", "Rate Limit", "Expired", "Error"
+
   final List<String> _logHistory = [];
 
   // Getters for UI
   List<String> get logs => List.unmodifiable(_logHistory);
-  Map<int, String> get keyStates => _keyStates;
-  int get currentGeminiIndex => _geminiKeyIndex;
 
-  void setManualGeminiKey(int index) {
-      if (index >= 0 && index < Secrets.geminiApiKeys.length) {
-          _geminiKeyIndex = index;
-          _geminiKeyCooldowns.remove(index);
-          _logDebug("Manually switched to Gemini Key $index");
-          notifyListeners(); // Update UI
-      }
-  }
-  
   // Time tracking for gap detection
   DateTime? _lastInteractionTime;
   DateTime? get lastInteractionTime => _lastInteractionTime;
@@ -254,7 +261,8 @@ class AIService with ChangeNotifier {
 
   Map<String, dynamic> get supermemoryDiagnostics {
     final d = _supermemory.diagnostics;
-    final meta = _memory.getSegment(_supermemoryMetaKey) as Map<String, dynamic>? ?? {};
+    final meta =
+        _memory.getSegment(_supermemoryMetaKey) as Map<String, dynamic>? ?? {};
     return {
       'lastHealthCheckAt': d.lastHealthCheckAt?.toIso8601String(),
       'lastHealthStatusCode': d.lastHealthStatusCode,
@@ -278,7 +286,8 @@ class AIService with ChangeNotifier {
   }
 
   // Debug Stream for UI
-  final StreamController<String> _debugStatusController = StreamController<String>.broadcast();
+  final StreamController<String> _debugStatusController =
+      StreamController<String>.broadcast();
   Stream<String> get debugStatusStream => _debugStatusController.stream;
 
   void _logDebug(String message) {
@@ -286,46 +295,15 @@ class AIService with ChangeNotifier {
     _logHistory.add("${DateTime.now().toString().substring(11, 19)} $message");
     if (_logHistory.length > 50) _logHistory.removeAt(0); // Keep last 50
     _debugStatusController.add(message);
-    
-    // Update Key Status based on message
-    if (message.contains("Gemini Key") && message.contains("SUCCESS")) {
-       _keyStates[_geminiKeyIndex] = "OK";
-    } else if (message.contains("Gemini Error")) {
-       if (message.contains("429") || message.contains("quota")) {
-           _keyStates[_geminiKeyIndex] = "429";
-       } else if (message.contains("expired")) {
-           _keyStates[_geminiKeyIndex] = "EXPIRED";
-       } else if (message.contains("timeout")) {
-           _keyStates[_geminiKeyIndex] = "TIMEOUT";
-       } else {
-           _keyStates[_geminiKeyIndex] = "ERR";
-       }
-    }
+
     notifyListeners(); // Notify UI of log update
   }
 
-  AIService(this._memory) {
-    _initGemini();
-  }
+  AIService(this._memory) {}
 
   @visibleForTesting
   AIResponse parseXmlForTest(String responseText) {
     return _parseXmlResponse(responseText);
-  }
-
-  void _initGemini() {
-    if (Secrets.geminiApiKeys.isEmpty) return;
-    if (_geminiKeyIndex >= Secrets.geminiApiKeys.length) {
-      _geminiKeyIndex = 0;
-    }
-    final apiKey = Secrets.geminiApiKeys[_geminiKeyIndex];
-    _geminiModel = GenerativeModel(
-      model: 'gemini-2.5-flash',
-      apiKey: apiKey,
-      generationConfig: GenerationConfig(
-        responseMimeType: 'application/json',
-      ),
-    );
   }
 
   bool _isMetricManipulationAttempt(String text) {
@@ -348,22 +326,28 @@ class AIService with ChangeNotifier {
     return hasMetricWord && hasManipulationVerb;
   }
 
-
-  bool _needsCalendarActionSchema(String userText, List<Map<String, dynamic>> compactTimeline) {
+  bool _needsCalendarActionSchema(
+    String userText,
+    List<Map<String, dynamic>> compactTimeline,
+  ) {
     final lower = userText.toLowerCase();
-    final explicit = RegExp(r'\b(schedule|plan|calendar|event|remind|reminder|notify|timetable|reschedule|delete|move|add|create|class|classes|slot)\b')
-        .hasMatch(lower);
+    final explicit = RegExp(
+      r'\b(schedule|plan|calendar|event|remind|reminder|notify|timetable|reschedule|delete|move|add|create|class|classes|slot)\b',
+    ).hasMatch(lower);
     if (explicit) return true;
 
-    final confirmation = RegExp(r'\b(do it|go ahead|yes|yep|yeah|schedule them|add them|do that|please do)\b')
-        .hasMatch(lower);
+    final confirmation = RegExp(
+      r'\b(do it|go ahead|yes|yep|yeah|schedule them|add them|do that|please do)\b',
+    ).hasMatch(lower);
     if (!confirmation) return false;
 
     for (final item in compactTimeline.reversed) {
       final sender = (item['sender'] ?? '').toString().toUpperCase();
       final text = (item['text'] ?? '').toString().toLowerCase();
       if (sender != 'VYOMA') continue;
-      if (RegExp(r'\b(schedule|scheduled|calendar|event|class|classes|timetable|reminder)\b').hasMatch(text)) {
+      if (RegExp(
+        r'\b(schedule|scheduled|calendar|event|class|classes|timetable|reminder)\b',
+      ).hasMatch(text)) {
         return true;
       }
     }
@@ -389,7 +373,10 @@ class AIService with ChangeNotifier {
         .where((e) => e.timestamp.isAfter(from))
         .toList();
 
-    final deferred = _memory.getDeferredTasks(includeCompleted: true, limit: 30);
+    final deferred = _memory.getDeferredTasks(
+      includeCompleted: true,
+      limit: 30,
+    );
 
     if (logs.isEmpty && journal.isEmpty && deferred.isEmpty) {
       return 'Insufficient longitudinal data yet.';
@@ -404,17 +391,24 @@ class AIService with ChangeNotifier {
       } else {
         failure++;
       }
-      final key = log.actionType.trim().isEmpty ? 'unknown' : log.actionType.trim().toLowerCase();
+      final key = log.actionType.trim().isEmpty
+          ? 'unknown'
+          : log.actionType.trim().toLowerCase();
       actionTypeCounts[key] = (actionTypeCounts[key] ?? 0) + 1;
     }
 
     final sortedActions = actionTypeCounts.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
-    final topActions = sortedActions.take(3).map((e) => '${e.key}:${e.value}').join(', ');
+    final topActions = sortedActions
+        .take(3)
+        .map((e) => '${e.key}:${e.value}')
+        .join(', ');
 
     final moodCounts = <String, int>{};
     for (final entry in journal) {
-      final mood = entry.mood.trim().isEmpty ? 'neutral' : entry.mood.trim().toLowerCase();
+      final mood = entry.mood.trim().isEmpty
+          ? 'neutral'
+          : entry.mood.trim().toLowerCase();
       moodCounts[mood] = (moodCounts[mood] ?? 0) + 1;
     }
     final sortedMoods = moodCounts.entries.toList()
@@ -439,23 +433,28 @@ class AIService with ChangeNotifier {
     }
 
     final totalOutcomes = success + failure;
-    final successRate = totalOutcomes == 0 ? 0 : ((success * 100) / totalOutcomes).round();
+    final successRate = totalOutcomes == 0
+        ? 0
+        : ((success * 100) / totalOutcomes).round();
 
     return [
       'Window: last 14 days',
       'Execution: success=$success failure=$failure success_rate=$successRate%',
       if (topActions.isNotEmpty) 'Frequent action types: $topActions',
-      if (journal.isNotEmpty) 'Journal trend: dominant_mood=$topMood entries=$journal.length',
+      if (journal.isNotEmpty)
+        'Journal trend: dominant_mood=$topMood entries=$journal.length',
       'Deferred tasks: open=$openDeferred started=$startedDeferred completed=$completedDeferred',
     ].join(' | ');
   }
 
   Future<void> _syncBehaviorPatternToSupermemory(String summary) async {
-    if (summary.trim().isEmpty || summary == 'Insufficient longitudinal data yet.') {
+    if (summary.trim().isEmpty ||
+        summary == 'Insufficient longitudinal data yet.') {
       return;
     }
 
-    final meta = _memory.getSegment(_supermemoryMetaKey) as Map<String, dynamic>? ?? {};
+    final meta =
+        _memory.getSegment(_supermemoryMetaKey) as Map<String, dynamic>? ?? {};
     final lastSyncRaw = meta['last_behavior_sync_at']?.toString();
     final lastHash = meta['last_behavior_summary_hash']?.toString();
     final currentHash = summary.hashCode.toString();
@@ -488,7 +487,9 @@ class AIService with ChangeNotifier {
     });
   }
 
-  List<Map<String, dynamic>> _compactTimeline(List<Map<String, dynamic>>? timeline) {
+  List<Map<String, dynamic>> _compactTimeline(
+    List<Map<String, dynamic>>? timeline,
+  ) {
     if (timeline == null || timeline.isEmpty) return const [];
 
     final start = timeline.length > _maxTimelineEntriesInPrompt
@@ -497,11 +498,16 @@ class AIService with ChangeNotifier {
 
     return timeline
         .sublist(start)
-        .map((item) => {
-              'sender': (item['sender'] ?? '').toString(),
-              'text': _truncateText((item['text'] ?? '').toString().replaceAll('\n', ' ').trim(), _maxTimelineTextLen),
-              'timestamp': (item['timestamp'] ?? '').toString(),
-            })
+        .map(
+          (item) => {
+            'sender': (item['sender'] ?? '').toString(),
+            'text': _truncateText(
+              (item['text'] ?? '').toString().replaceAll('\n', ' ').trim(),
+              _maxTimelineTextLen,
+            ),
+            'timestamp': (item['timestamp'] ?? '').toString(),
+          },
+        )
         .toList();
   }
 
@@ -525,14 +531,19 @@ class AIService with ChangeNotifier {
       if (count >= 16) break;
       final value = entry.value;
       if (value is num || value is bool || value is String) {
-        compact[entry.key] = value is String ? _truncateText(value, 120) : value;
+        compact[entry.key] = value is String
+            ? _truncateText(value, 120)
+            : value;
         count++;
       }
     }
     return compact;
   }
 
-  String _getSystemPrompt(ProductivityMetrics metrics, {required bool includeCalendarSchema}) {
+  String _getSystemPrompt(
+    ProductivityMetrics metrics, {
+    required bool includeCalendarSchema,
+  }) {
     final calendarSection = includeCalendarSchema
         ? """
 
@@ -627,18 +638,8 @@ MEMORY_UPDATE RULE
   Future<List<String>> extractDeepContextInsights(String journalText) async {
     if (journalText.trim().isEmpty) return [];
 
-    if (_geminiModel == null) {
-      // Fallback heuristic when no model is available.
-      final fallback = journalText
-          .split(RegExp(r'[.!?]'))
-          .map((s) => s.trim())
-          .where((s) => s.length > 24)
-          .take(3)
-          .toList();
-      return fallback;
-    }
-
-    final prompt = """
+    final prompt =
+        """
 You are an expert psychological profiler and context engine.
 Analyze the following journal entry written by the user.
 
@@ -655,8 +656,10 @@ Output as a clean bulleted list containing only the insights. Do not include int
 """;
 
     try {
-      final response = await _geminiModel!.generateContent([Content.text(prompt)]);
-      final insights = response.text?.trim() ?? "";
+      final responseText = await _callGeminiDirect("", [
+        TextPart(prompt),
+      ], null);
+      final insights = responseText?.trim() ?? "";
       if (insights.isEmpty || insights.length <= 10) return [];
       return _sanitizeInsightLines(insights);
     } catch (e) {
@@ -682,26 +685,17 @@ Output as a clean bulleted list containing only the insights. Do not include int
   }
 
   Future<AIResponse> sendMessage(
-      String userText, 
-      List<String> currentEvents, 
-      ProductivityMetrics metrics,
-      StaticContext context,
-      Map<String, dynamic> deviceContext,
-      {
-        Uint8List? imageBytes,
-        List<Map<String, dynamic>>? activityLog,
-        List<Map<String, dynamic>>? conversationTimeline,
-        String? temporalContext,
-        String? friendActivitySummary,
-      } 
-  ) async {
-    if (_geminiModel == null &&
-        Secrets.nvidiaApiKeys.isEmpty &&
-        Secrets.grokApiKeys.isEmpty &&
-        Secrets.geminiApiKeys.isEmpty) {
-      return AIResponse.error("System Offline.");
-    }
-    
+    String userText,
+    List<String> currentEvents,
+    ProductivityMetrics metrics,
+    StaticContext context,
+    Map<String, dynamic> deviceContext, {
+    Uint8List? imageBytes,
+    List<Map<String, dynamic>>? activityLog,
+    List<Map<String, dynamic>>? conversationTimeline,
+    String? temporalContext,
+    String? friendActivitySummary,
+  }) async {
     // Get enabled/disabled segments from memory toggles
     final segToggles = _memory.getSegmentToggles();
 
@@ -718,9 +712,9 @@ Output as a clean bulleted list containing only the insights. Do not include int
         final recallFuture = _supermemory
             .recall(userText, limit: 3)
             .timeout(const Duration(milliseconds: 1400));
-        final profileFuture = _supermemory
-            .getUserProfile()
-            .timeout(const Duration(milliseconds: 900));
+        final profileFuture = _supermemory.getUserProfile().timeout(
+          const Duration(milliseconds: 900),
+        );
 
         final results = await Future.wait<dynamic>([
           recallFuture,
@@ -736,10 +730,12 @@ Output as a clean bulleted list containing only the insights. Do not include int
         debugPrint("SUPERMEMORY RECALL ERROR: $e");
       }
     }
-    
+
     // Retrieve Deep Context
-    final protocol = _memory.getSegment('protocol') as Map<String, dynamic>? ?? {};
-    final prefs = _memory.getSegment('preferences') as Map<String, dynamic>? ?? {};
+    final protocol =
+        _memory.getSegment('protocol') as Map<String, dynamic>? ?? {};
+    final prefs =
+        _memory.getSegment('preferences') as Map<String, dynamic>? ?? {};
 
     final goal = protocol['main_goal'] ?? "Unknown";
     final blocker = protocol['main_blocker'] ?? "Distractions";
@@ -749,7 +745,9 @@ Output as a clean bulleted list containing only the insights. Do not include int
     // Context Content
 
     final compactTimeline = _compactTimeline(conversationTimeline);
-    final compactCurrentEvents = currentEvents.take(_maxCalendarEventsInPrompt).toList();
+    final compactCurrentEvents = currentEvents
+        .take(_maxCalendarEventsInPrompt)
+        .toList();
     final compactRelevantLogs = _memory
         .getRelevantHistory("")
         .take(_maxRecentHistoryLogs)
@@ -757,12 +755,14 @@ Output as a clean bulleted list containing only the insights. Do not include int
         .toList();
     final compactDeferredTasks = _memory
         .getDeferredTasks(limit: _maxDeferredTasksInPrompt)
-        .map((t) => {
-              'description': _truncateText(t.description, 120),
-              'promisedFor': t.promisedFor,
-              'status': t.status.name,
-              'createdAt': t.createdAt.toIso8601String(),
-            })
+        .map(
+          (t) => {
+            'description': _truncateText(t.description, 120),
+            'promisedFor': t.promisedFor,
+            'status': t.status.name,
+            'createdAt': t.createdAt.toIso8601String(),
+          },
+        )
         .toList();
 
     final behaviorPatternSummary = _buildBehaviorPatternSummary();
@@ -771,14 +771,16 @@ Output as a clean bulleted list containing only the insights. Do not include int
     final Map<String, dynamic> dataInput = {
       "user_input": userText,
       "user_profile": {
-        "name": "User", 
-        "main_goal": context.mainGoal, 
+        "name": "User",
+        "main_goal": context.mainGoal,
         "metrics": metrics.toJson(),
         // Only include if segment is enabled
-        if (segToggles['identity'] == true) "identity": _memory.getSegment('identity'),
+        if (segToggles['identity'] == true)
+          "identity": _memory.getSegment('identity'),
         if (segToggles['preferences'] == true) "preferences": prefs,
         if (segToggles['protocol'] == true) "protocol": protocol,
-        if (segToggles['facts'] == true) "facts": _compactFacts(_memory.getFacts()), 
+        if (segToggles['facts'] == true)
+          "facts": _compactFacts(_memory.getFacts()),
       },
       "agent_memory": {
         if (segToggles['history'] == true) "recent_logs": compactRelevantLogs,
@@ -786,28 +788,36 @@ Output as a clean bulleted list containing only the insights. Do not include int
         "conversation_timeline": compactTimeline,
         "deferred_tasks": compactDeferredTasks,
         "behavior_pattern_summary": behaviorPatternSummary,
-        if (segToggles['supermemory'] == true) "long_term_memories": longTermMemories,
-        if (segToggles['supermemory'] == true) "supermemory_profile": userProfile,
+        if (segToggles['supermemory'] == true)
+          "long_term_memories": longTermMemories,
+        if (segToggles['supermemory'] == true)
+          "supermemory_profile": userProfile,
       },
       "static_context": {
         "timetable": context.fixedTimetable.take(12).toList(),
-        "device_telemetry": _compactTelemetry(deviceContext), 
-        "temporal_status": temporalContext ?? "Active Session"
+        "device_telemetry": _compactTelemetry(deviceContext),
+        "temporal_status": temporalContext ?? "Active Session",
       },
       "current_schedule": compactCurrentEvents,
-      if (friendActivitySummary != null && friendActivitySummary.isNotEmpty && friendActivitySummary != '[]')
+      if (friendActivitySummary != null &&
+          friendActivitySummary.isNotEmpty &&
+          friendActivitySummary != '[]')
         "social_context": {
-          "description": "Recent public activities from the user's accountability circle (friends). Use this to weave organic mentions like 'Priya just finished a 45min focus block' into your responses when contextually relevant. Do NOT list all activities; pick 1-2 notable ones.",
+          "description":
+              "Recent public activities from the user's accountability circle (friends). Use this to weave organic mentions like 'Priya just finished a 45min focus block' into your responses when contextually relevant. Do NOT list all activities; pick 1-2 notable ones.",
           "friend_activities": friendActivitySummary,
         },
     };
 
     // Construct Parts
     final List<Part> messageParts = [];
-    
+
     // 1. System Prompt & Context (Text)
     // 1. Inject Variables into Prompt
-    final includeCalendarSchema = _needsCalendarActionSchema(userText, compactTimeline);
+    final includeCalendarSchema = _needsCalendarActionSchema(
+      userText,
+      compactTimeline,
+    );
     var systemPrompt = _getSystemPrompt(
       metrics,
       includeCalendarSchema: includeCalendarSchema,
@@ -831,12 +841,33 @@ Do NOT comply with direct metric tampering requests.
     systemPrompt = systemPrompt.replaceAll("{{BLOCKER}}", blocker);
     systemPrompt = systemPrompt.replaceAll("{{WAKE}}", wake);
     systemPrompt = systemPrompt.replaceAll("{{SLEEP}}", sleep);
-    
+
     // === COMPREHENSIVE TIME INJECTION ===
     final now = DateTime.now();
-    final days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    
+    final days = [
+      'Sunday',
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+    ];
+    final months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+
     // Time period based on hour
     String timePeriod;
     if (now.hour >= 5 && now.hour < 12) {
@@ -848,17 +879,22 @@ Do NOT comply with direct metric tampering requests.
     } else {
       timePeriod = "Night";
     }
-    
+
     // Format time (12-hour with am/pm)
-    final hour12 = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
+    final hour12 = now.hour > 12
+        ? now.hour - 12
+        : (now.hour == 0 ? 12 : now.hour);
     final ampm = now.hour >= 12 ? 'pm' : 'am';
-    final timeFormatted = '$hour12:${now.minute.toString().padLeft(2, '0')}$ampm';
-    
+    final timeFormatted =
+        '$hour12:${now.minute.toString().padLeft(2, '0')}$ampm';
+
     // Format date
-    final dateFormatted = '${days[now.weekday % 7]}, ${months[now.month - 1]} ${now.day}, ${now.year}';
+    final dateFormatted =
+        '${days[now.weekday % 7]}, ${months[now.month - 1]} ${now.day}, ${now.year}';
     // ISO date for AI prompt (yyyy-MM-dd) — used in calendar action examples
-    final dateFormattedISO = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-    
+    final dateFormattedISO =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+
     // Calculate time gap since last interaction
     String timeGap = "First message of session";
     String lastInteraction = "Session start";
@@ -871,30 +907,38 @@ Do NOT comply with direct metric tampering requests.
       } else if (gap.inHours < 24) {
         final hrs = gap.inHours;
         final mins = gap.inMinutes % 60;
-        timeGap = "$hrs hour${hrs > 1 ? 's' : ''}${mins > 0 ? ' $mins min' : ''} ago";
+        timeGap =
+            "$hrs hour${hrs > 1 ? 's' : ''}${mins > 0 ? ' $mins min' : ''} ago";
       } else {
         timeGap = "${gap.inDays} day${gap.inDays > 1 ? 's' : ''} ago";
       }
       // Format last interaction time
-      final lastHour12 = _lastInteractionTime!.hour > 12 ? _lastInteractionTime!.hour - 12 : (_lastInteractionTime!.hour == 0 ? 12 : _lastInteractionTime!.hour);
+      final lastHour12 = _lastInteractionTime!.hour > 12
+          ? _lastInteractionTime!.hour - 12
+          : (_lastInteractionTime!.hour == 0 ? 12 : _lastInteractionTime!.hour);
       final lastAmpm = _lastInteractionTime!.hour >= 12 ? 'pm' : 'am';
-      lastInteraction = '$lastHour12:${_lastInteractionTime!.minute.toString().padLeft(2, '0')}$lastAmpm';
+      lastInteraction =
+          '$lastHour12:${_lastInteractionTime!.minute.toString().padLeft(2, '0')}$lastAmpm';
     }
-    
+
     // Build readable recent message timeline for stronger temporal grounding.
     String recentMessageTimes = "No prior non-system messages.";
     if (compactTimeline.isNotEmpty) {
       final lines = <String>[];
       for (final item in compactTimeline) {
         final sender = (item['sender'] ?? 'UNK').toString();
-        final text = (item['text'] ?? '').toString().replaceAll('\n', ' ').trim();
+        final text = (item['text'] ?? '')
+            .toString()
+            .replaceAll('\n', ' ')
+            .trim();
         final snippet = text.length > 80 ? '${text.substring(0, 80)}...' : text;
         final rawTs = item['timestamp']?.toString() ?? '';
 
         String formattedTs = rawTs;
         try {
           final ts = DateTime.parse(rawTs).toLocal();
-          formattedTs = '${ts.year}-${ts.month.toString().padLeft(2, '0')}-${ts.day.toString().padLeft(2, '0')} ${ts.hour.toString().padLeft(2, '0')}:${ts.minute.toString().padLeft(2, '0')}:${ts.second.toString().padLeft(2, '0')}';
+          formattedTs =
+              '${ts.year}-${ts.month.toString().padLeft(2, '0')}-${ts.day.toString().padLeft(2, '0')} ${ts.hour.toString().padLeft(2, '0')}:${ts.minute.toString().padLeft(2, '0')}:${ts.second.toString().padLeft(2, '0')}';
         } catch (_) {}
 
         lines.add('[$formattedTs] $sender: $snippet');
@@ -903,133 +947,128 @@ Do NOT comply with direct metric tampering requests.
     }
 
     // Inject all time variables
-    final currentTimestamp = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
-    systemPrompt = systemPrompt.replaceAll("{{CURRENT_TIME}}", currentTimestamp);
-    systemPrompt = systemPrompt.replaceAll("{{DAY_OF_WEEK}}", days[now.weekday % 7]);
+    final currentTimestamp =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
+    systemPrompt = systemPrompt.replaceAll(
+      "{{CURRENT_TIME}}",
+      currentTimestamp,
+    );
+    systemPrompt = systemPrompt.replaceAll(
+      "{{DAY_OF_WEEK}}",
+      days[now.weekday % 7],
+    );
     systemPrompt = systemPrompt.replaceAll("{{DATE_FORMATTED}}", dateFormatted);
-    systemPrompt = systemPrompt.replaceAll("{{DATE_FORMATTED_ISO}}", dateFormattedISO);
+    systemPrompt = systemPrompt.replaceAll(
+      "{{DATE_FORMATTED_ISO}}",
+      dateFormattedISO,
+    );
     systemPrompt = systemPrompt.replaceAll("{{TIME_FORMATTED}}", timeFormatted);
     systemPrompt = systemPrompt.replaceAll("{{TIME_PERIOD}}", timePeriod);
-    systemPrompt = systemPrompt.replaceAll("{{LAST_INTERACTION}}", lastInteraction);
+    systemPrompt = systemPrompt.replaceAll(
+      "{{LAST_INTERACTION}}",
+      lastInteraction,
+    );
     systemPrompt = systemPrompt.replaceAll("{{TIME_GAP}}", timeGap);
-    systemPrompt = systemPrompt.replaceAll("{{RECENT_MESSAGE_TIMES}}", recentMessageTimes);
-    
+    systemPrompt = systemPrompt.replaceAll(
+      "{{RECENT_MESSAGE_TIMES}}",
+      recentMessageTimes,
+    );
+
     // Update last interaction time for next message
     _lastInteractionTime = now;
-    
+
     // Inject Evidence into Prompt Text for stronger visibility
-    String evidenceStr = (activityLog != null && activityLog.isNotEmpty) 
-        ? jsonEncode(activityLog) 
+    String evidenceStr = (activityLog != null && activityLog.isNotEmpty)
+        ? jsonEncode(activityLog)
         : "NO RECENT ACTIVITY RECORDED.";
     systemPrompt = systemPrompt.replaceAll("{{EVIDENCE}}", evidenceStr);
 
     final contextJson = jsonEncode(dataInput);
-    _logDebug('Prompt/context size chars -> prompt: ${systemPrompt.length}, context: ${contextJson.length}');
-    
-    messageParts.add(TextPart("SYSTEM_PROMPT: $systemPrompt\n\nCONTEXT_DATA: $contextJson"));
+    _logDebug(
+      'Prompt/context size chars -> prompt: ${systemPrompt.length}, context: ${contextJson.length}',
+    );
+
+    messageParts.add(
+      TextPart("SYSTEM_PROMPT: $systemPrompt\n\nCONTEXT_DATA: $contextJson"),
+    );
 
     // 2. Image (if present) - add BEFORE user question for proper vision processing
     if (imageBytes != null) {
       // Gemini expects 'image/jpeg' or 'image/png'. Assuming png/jpeg from picker.
       messageParts.add(DataPart('image/jpeg', imageBytes));
       // Add user's question about the image explicitly
-      messageParts.add(TextPart("USER QUESTION ABOUT THIS IMAGE: $userText\n\nDescribe what you see in this image and respond to the user's question."));
+      messageParts.add(
+        TextPart(
+          "USER QUESTION ABOUT THIS IMAGE: $userText\n\nDescribe what you see in this image and respond to the user's question.",
+        ),
+      );
     } else {
       // No image, just add user input
       messageParts.add(TextPart("USER_INPUT: $userText"));
     }
 
     // 0. VISION HIGHJACK: If image exists, prioritize Gemini
-    if (imageBytes != null && Secrets.geminiApiKeys.isNotEmpty) {
-      _logDebug("Image detected! Prioritizing Gemini 2.5 Flash for superior vision.");
-      final geminiRes = await _attemptGeminiQueue(messageParts, imageBytes);
+    if (imageBytes != null) {
+      _logDebug(
+        "Image detected! Prioritizing Gemini 2.5 Flash for superior vision.",
+      );
+      final geminiRes = await _attemptGeminiRequest(messageParts, imageBytes);
       if (geminiRes != null) return geminiRes;
-      
+
       _logDebug("Gemini Vision failed! Falling back to NIM Llama Vision.");
     }
 
     // 1. Try Nvidia NIM (PRIMARY)
-    // 1. Try Nvidia
-    if (Secrets.nvidiaApiKeys.isNotEmpty) {
-      for (int i = 0; i < Secrets.nvidiaApiKeys.length; i++) {
-        try {
-          _logDebug("Trying Nvidia NIM...");
-          // Use the fully time-injected systemPrompt built above (not a fresh copy)
-          final textPrompt = "SYSTEM_PROMPT: $systemPrompt\n\nCONTEXT_DATA: $contextJson\n\nUSER_INPUT: $userText";
-          // If streaming callback is set, use SSE streaming path
-          if (_streamTokenCallback != null) {
-            final callback = _streamTokenCallback!;
-            final buffer = StringBuffer();
-            bool insideVerbal = false;
+    try {
+      _logDebug("Trying Nvidia NIM...");
+      final textPrompt =
+          "SYSTEM_PROMPT: $systemPrompt\n\nCONTEXT_DATA: $contextJson\n\nUSER_INPUT: $userText";
+      final response = await _callNvidia(
+        textPrompt,
+        "",
+        imageBytes: imageBytes,
+      );
 
-            await for (final token in _callNvidiaStreaming(textPrompt, Secrets.nvidiaApiKeys[i], imageBytes: imageBytes)) {
-              buffer.write(token);
-              
-              // We only want to stream text that is inside the <verbal> tag to the UI
-              final currentText = buffer.toString();
-              if (currentText.contains("<verbal>") && !currentText.contains("</verbal>")) {
-                if (!insideVerbal) {
-                  insideVerbal = true;
-                  final split = currentText.split("<verbal>");
-                  if (split.length > 1 && split.last.isNotEmpty) {
-                     callback(split.last);
-                  }
-                } else {
-                  callback(token.replaceAll("<verbal>", "").replaceAll("</verbal>", ""));
-                }
-              } else if (currentText.contains("</verbal>") && insideVerbal) {
-                insideVerbal = false;
-                if (token.contains("</verbal>")) {
-                   final split = token.split("</verbal>");
-                   if (split.first.isNotEmpty) {
-                      callback(split.first.replaceAll("<verbal>", ""));
-                   }
-                }
-              }
-            }
-            return _parseXmlResponse(buffer.toString());
-          }
-          final response = await _callNvidia(textPrompt, Secrets.nvidiaApiKeys[i], imageBytes: imageBytes);
-          return _parseXmlResponse(response);
-        } catch (e) {
-          debugPrint("Nvidia Error: $e");
-          _logDebug("NVIDIA ERROR: $e");
+      final parsed = _parseXmlResponse(response);
+      if (_streamTokenCallback != null) {
+        for (final word in parsed.response.split(' ')) {
+          _streamTokenCallback!('$word ');
+          await Future.delayed(const Duration(milliseconds: 18));
         }
       }
+      return parsed;
+    } catch (e) {
+      debugPrint("Nvidia Error: $e");
+      _logDebug("NVIDIA ERROR: $e");
     }
 
     _logDebug("NVIDIA FAILED. ENGAGING GROK FALLBACK.");
 
     // 2. Try Grok (SECONDARY)
-    if (Secrets.grokApiKeys.isNotEmpty) {
-      for (int i = 0; i < Secrets.grokApiKeys.length; i++) {
-        try {
-          _logDebug("Trying Grok...");
-          // Use the fully time-injected systemPrompt built above (not a fresh copy)
-          final textPrompt = "SYSTEM_PROMPT: $systemPrompt\n\nCONTEXT_DATA: $contextJson\n\nUSER_INPUT: $userText";
-          final response = await _callGrok(textPrompt, Secrets.grokApiKeys[i], imageBytes: imageBytes);
-          
-          final parsed = _parseXmlResponse(response);
-          if (_streamTokenCallback != null) {
-            for (final word in parsed.response.split(' ')) {
-              _streamTokenCallback!('$word ');
-              await Future.delayed(const Duration(milliseconds: 18));
-            }
-          }
-          return parsed;
-        } catch (e) {
-          debugPrint("Grok Error: $e");
+    try {
+      _logDebug("Trying Grok...");
+      final textPrompt =
+          "SYSTEM_PROMPT: $systemPrompt\n\nCONTEXT_DATA: $contextJson\n\nUSER_INPUT: $userText";
+      final response = await _callGrok(textPrompt, "", imageBytes: imageBytes);
+
+      final parsed = _parseXmlResponse(response);
+      if (_streamTokenCallback != null) {
+        for (final word in parsed.response.split(' ')) {
+          _streamTokenCallback!('$word ');
+          await Future.delayed(const Duration(milliseconds: 18));
         }
       }
+      return parsed;
+    } catch (e) {
+      debugPrint("Grok Error: $e");
+      _logDebug("GROK ERROR: $e");
     }
 
     _logDebug("GROK FAILED. ENGAGING GEMINI FALLBACK.");
 
-    // 3. Try Gemini (TERTIARY / RATE-LIMITED POOL)
-    if (Secrets.geminiApiKeys.isNotEmpty) {
-      final geminiRes = await _attemptGeminiQueue(messageParts, imageBytes);
-      if (geminiRes != null) return geminiRes;
-    }
+    // 3. Try Gemini (TERTIARY)
+    final geminiRes = await _attemptGeminiRequest(messageParts, imageBytes);
+    if (geminiRes != null) return geminiRes;
 
     return AIResponse(
       response: "ALL SYSTEMS OFFLINE. HQ IS UNREACHABLE.",
@@ -1037,89 +1076,55 @@ Do NOT comply with direct metric tampering requests.
     );
   }
 
-  Future<AIResponse?> _attemptGeminiQueue(List<Part> messageParts, Uint8List? imageBytes) async {
-    if (Secrets.geminiApiKeys.isEmpty) return null;
-    final now = DateTime.now();
-    final keyCount = Secrets.geminiApiKeys.length;
+  Future<AIResponse?> _attemptGeminiRequest(
+    List<Part> messageParts,
+    Uint8List? imageBytes,
+  ) async {
+    try {
+      _logDebug("Trying Gemini backend...");
 
-    // Keep index valid and continue from previous pointer for true round-robin usage.
-    _geminiKeyIndex = _geminiKeyIndex % keyCount;
-    
-    // Reset cooldowns for fresh attempt (no persistence desired)
-    _geminiKeyCooldowns.clear();
-    
-    int attemptCount = 0;
-    int consecutiveTimeouts = 0;
-    final maxAttempts = keyCount;
-    
-    while (attemptCount < maxAttempts) {
-      final currentIndex = _geminiKeyIndex;
+      final response = await _callGeminiDirect("", messageParts, imageBytes)
+          .timeout(
+            const Duration(seconds: 45),
+            onTimeout: () {
+              throw Exception('Gemini request timeout');
+            },
+          );
 
-      // Skip keys on cooldown
-      if (_geminiKeyCooldowns.containsKey(currentIndex)) {
-        _geminiKeyIndex = (currentIndex + 1) % keyCount;
-        attemptCount++;
-        continue;
-      }
-      
-      try {
-        final apiKey = Secrets.geminiApiKeys[currentIndex];
-        _logDebug("Trying Gemini Key $currentIndex...");
-        
-        // Use direct HTTP API instead of SDK to avoid format bugs
-        final response = await _callGeminiDirect(apiKey, messageParts, imageBytes)
-            .timeout(const Duration(seconds: 45), onTimeout: () {
-          throw Exception('Gemini request timeout');
-        });
-        
-        if (response != null) {
-          _geminiKeyCooldowns.remove(currentIndex); // Success! Clear cooldown
-          _logDebug("Gemini Key $currentIndex SUCCESS");
-          _geminiKeyIndex = (currentIndex + 1) % keyCount;
-          
-          final parsed = _parseXmlResponse(response);
-          if (_streamTokenCallback != null) {
-            for (final word in parsed.response.split(' ')) {
-              _streamTokenCallback!('$word ');
-              await Future.delayed(const Duration(milliseconds: 18));
-            }
+      if (response != null) {
+        _logDebug("Gemini Request SUCCESS");
+
+        final parsed = _parseXmlResponse(response);
+        if (_streamTokenCallback != null) {
+          for (final word in parsed.response.split(' ')) {
+            _streamTokenCallback!('$word ');
+            await Future.delayed(const Duration(milliseconds: 18));
           }
-          return parsed;
         }
-      } catch (e) {
-        _logDebug("Gemini Error (Key $currentIndex): $e");
-        
-        if (e.toString().contains('timeout')) {
-           consecutiveTimeouts++;
-           if (consecutiveTimeouts >= 3) {
-              _logDebug("Gemini Aborted: 3 consecutive timeouts. Switching to Fallback.");
-               _geminiKeyIndex = (currentIndex + 1) % keyCount;
-              break;
-           }
-        } else {
-           consecutiveTimeouts = 0;
-        }
-
-        await Future.delayed(const Duration(milliseconds: 500));
-        _geminiKeyCooldowns[currentIndex] = now;
-        _geminiKeyIndex = (currentIndex + 1) % keyCount;
+        return parsed;
       }
-      attemptCount++;
+    } catch (e) {
+      _logDebug("Gemini Error: $e");
     }
-    debugPrint("ALL GEMINI KEYS FAILED OR ON COOLDOWN. Tried $attemptCount keys.");
     return null;
   }
 
-  Future<String?> _callGeminiDirect(String apiKey, List<Part> messageParts, Uint8List? imageBytes) async {
+  Future<String?> _callGeminiDirect(
+    String apiKey,
+    List<Part> messageParts,
+    Uint8List? imageBytes,
+  ) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw Exception("User not authenticated");
     final idToken = await user.getIdToken();
 
-    final url = Uri.parse('https://vyoma-api-backend-9629c91b8aad.herokuapp.com/api/gemini/generate');
-    
+    final url = Uri.parse(
+      'https://vyoma-api-backend-9629c91b8aad.herokuapp.com/api/gemini/generate',
+    );
+
     // Build parts for JSON request
     final List<Map<String, dynamic>> parts = [];
-    
+
     for (final part in messageParts) {
       if (part is TextPart) {
         parts.add({'text': part.text});
@@ -1128,32 +1133,33 @@ Do NOT comply with direct metric tampering requests.
           'inlineData': {
             'mimeType': 'image/jpeg',
             'data': base64Encode(imageBytes!),
-          }
+          },
         });
       }
     }
-    
+
     final body = jsonEncode({
       'modelName': 'gemini-2.5-flash',
       'payload': {
         'contents': [
-          {
-            'role': 'user',
-            'parts': parts
-          }
+          {'role': 'user', 'parts': parts},
         ],
         'safetySettings': [
           {'category': 'HARM_CATEGORY_HARASSMENT', 'threshold': 'BLOCK_NONE'},
           {'category': 'HARM_CATEGORY_HATE_SPEECH', 'threshold': 'BLOCK_NONE'},
-          {'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'threshold': 'BLOCK_NONE'},
-          {'category': 'HARM_CATEGORY_DANGEROUS_CONTENT', 'threshold': 'BLOCK_NONE'},
+          {
+            'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+            'threshold': 'BLOCK_NONE',
+          },
+          {
+            'category': 'HARM_CATEGORY_DANGEROUS_CONTENT',
+            'threshold': 'BLOCK_NONE',
+          },
         ],
-        'generationConfig': {
-          'maxOutputTokens': 16384,
-        }
-      }
+        'generationConfig': {'maxOutputTokens': 16384},
+      },
     });
-    
+
     final response = await http.post(
       url,
       headers: {
@@ -1162,38 +1168,49 @@ Do NOT comply with direct metric tampering requests.
       },
       body: body,
     );
-    
+
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-      if (data['candidates'] != null && (data['candidates'] as List).isNotEmpty) {
+      if (data['candidates'] != null &&
+          (data['candidates'] as List).isNotEmpty) {
         final candidate = data['candidates'][0];
         final content = candidate['content'];
-        if (content != null && content['parts'] != null && (content['parts'] as List).isNotEmpty) {
-           final text = content['parts'][0]['text'];
-           return text;
+        if (content != null &&
+            content['parts'] != null &&
+            (content['parts'] as List).isNotEmpty) {
+          final text = content['parts'][0]['text'];
+          return text;
         } else {
-           debugPrint("Gemini Empty/Safety Response: ${response.body}");
-           throw Exception("Gemini returned no content (Check logs for safety/finishReason)");
+          debugPrint("Gemini Empty/Safety Response: ${response.body}");
+          throw Exception(
+            "Gemini returned no content (Check logs for safety/finishReason)",
+          );
         }
       }
     } else {
       final error = jsonDecode(response.body);
       final msg = error['error']?['message'] ?? 'Unknown Gemini API error';
       if (response.statusCode == 503) {
-         throw Exception("Gemini Overloaded: $msg");
+        throw Exception("Gemini Overloaded: $msg");
       }
       throw Exception(msg);
     }
     return null;
   }
 
-  Future<String> _callNvidia(String textPrompt, String apiKey, {Uint8List? imageBytes}) async {
+  Future<String> _callNvidia(
+    String textPrompt,
+    String apiKey, {
+    Uint8List? imageBytes,
+  }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw Exception("User not authenticated");
     final idToken = await user.getIdToken();
 
-    final url = Uri.parse('https://vyoma-api-backend-9629c91b8aad.herokuapp.com/api/nvidia/generate');
-    
+    final url = Uri.parse(
+      'https://vyoma-api-backend-9629c91b8aad.herokuapp.com/api/nvidia/generate',
+    );
+
     final List<Map<String, dynamic>> messages = [];
 
     if (imageBytes != null) {
@@ -1201,152 +1218,76 @@ Do NOT comply with direct metric tampering requests.
         'role': 'user',
         'content': [
           {'type': 'text', 'text': textPrompt},
-          {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,${base64Encode(imageBytes)}'}}
-        ]
+          {
+            'type': 'image_url',
+            'image_url': {
+              'url': 'data:image/jpeg;base64,${base64Encode(imageBytes)}',
+            },
+          },
+        ],
       });
     } else {
       messages.add({'role': 'user', 'content': textPrompt});
     }
 
-    final modelName = imageBytes != null ? 'meta/llama-3.2-11b-vision-instruct' : 'meta/llama3-70b-instruct';
+    final modelName = imageBytes != null
+        ? 'meta/llama-3.2-11b-vision-instruct'
+        : 'meta/llama3-70b-instruct';
 
-    final response = await http.post(
-      url,
-      headers: {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Authorization': 'Bearer $idToken',
-      },
-      body: jsonEncode({
-        'model': modelName,
-        'messages': messages,
-      }),
-    ).timeout(const Duration(seconds: 15));
+    final response = await http
+        .post(
+          url,
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Authorization': 'Bearer $idToken',
+          },
+          body: jsonEncode({'model': modelName, 'messages': messages}),
+        )
+        .timeout(const Duration(seconds: 15));
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-      debugPrint("NVIDIA RAW FETCH: ${data['choices'][0]['message']['content']}");
+      debugPrint(
+        "NVIDIA RAW FETCH: ${data['choices'][0]['message']['content']}",
+      );
       return data['choices'][0]['message']['content'];
     } else {
-      throw Exception('Nvidia Failed [${response.statusCode}]: ${response.body}');
-    }
-  }
-
-  /// Streaming version of Nvidia call — returns SSE token chunks via Stream.
-  /// Falls back to returning the full response as a single chunk on error.
-  Stream<String> _callNvidiaStreaming(String textPrompt, String apiKey, {Uint8List? imageBytes}) async* {
-    final url = Uri.parse('https://integrate.api.nvidia.com/v1/chat/completions');
-    
-    final List<Map<String, dynamic>> messages = [];
-    
-    if (imageBytes != null) {
-      messages.add({
-        'role': 'user',
-        'content': [
-          {'type': 'text', 'text': textPrompt},
-          {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,${base64Encode(imageBytes)}'}}
-        ]
-      });
-    } else {
-      messages.add({'role': 'user', 'content': textPrompt});
-    }
-
-    final modelName = imageBytes != null ? 'meta/llama-3.2-11b-vision-instruct' : 'meta/llama3-70b-instruct';
-    final payload = jsonEncode({'model': modelName, 'messages': messages, 'stream': true});
-
-    // Use dart:io HttpClient to bypass macOS NSURLSession chunk buffering
-    final client = HttpClient();
-    client.autoUncompress = false; // Prevents wait-for-full-gzip buffering
-
-    try {
-      final request = await client.postUrl(url);
-      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json; charset=utf-8');
-      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $apiKey');
-      request.headers.set(HttpHeaders.acceptHeader, 'text/event-stream');
-
-      // Use explicit UTF-8 bytes. HttpClientRequest.write can throw on non-Latin text.
-      request.add(utf8.encode(payload));
-      final response = await request.close().timeout(const Duration(seconds: 20));
-
-      if (response.statusCode != 200) {
-        final body = await response.transform(utf8.decoder).join();
-        throw Exception('Nvidia Stream Failed [${response.statusCode}]: $body');
-      }
-
-      await for (final chunk in response.transform(utf8.decoder)) {
-        for (final line in chunk.split('\n')) {
-          final trimmed = line.trim();
-          if (!trimmed.startsWith('data: ')) continue;
-          final data = trimmed.substring(6);
-          if (data == '[DONE]') break;
-          
-          try {
-            final json = jsonDecode(data);
-            final delta = json['choices']?[0]?['delta']?['content'];
-            if (delta != null && delta is String && delta.isNotEmpty) {
-              yield delta;
-            }
-          } catch (_) {
-            // Ignore malformed chunks
-          }
-        }
-      }
-    } finally {
-      client.close(force: true);
-    }
-  }
-
-  /// Wraps sendMessage to stream tokens via [onToken] callback.
-  /// Sets _streamTokenCallback, calls sendMessage with the same args, then clears.
-  Future<AIResponse> sendMessageWithStream({
-    required String userText,
-    required List<String> calendarEvents,
-    required ProductivityMetrics metrics,
-    required StaticContext staticContext,
-    required Map<String, dynamic> deviceTelemetry,
-    Uint8List? imageBytes,
-    List<Map<String, dynamic>>? conversationTimeline,
-    Map<String, dynamic>? temporalContext,
-    String? friendActivitySummary,
-    required void Function(String token) onToken,
-  }) async {
-    _streamTokenCallback = onToken;
-    try {
-      return await sendMessage(
-        userText,
-        calendarEvents,
-        metrics,
-        staticContext,
-        deviceTelemetry,
-        imageBytes: imageBytes,
-        conversationTimeline: conversationTimeline,
-        temporalContext: temporalContext != null ? jsonEncode(temporalContext) : null,
-        friendActivitySummary: friendActivitySummary,
+      throw Exception(
+        'Nvidia Failed [${response.statusCode}]: ${response.body}',
       );
-    } finally {
-      _streamTokenCallback = null;
     }
   }
 
   /// Active streaming callback — non-null when a streaming request is in progress.
   void Function(String token)? _streamTokenCallback;
 
-
-  Future<String> _callGrok(String textPrompt, String apiKey, {Uint8List? imageBytes}) async {
+  Future<String> _callGrok(
+    String textPrompt,
+    String apiKey, {
+    Uint8List? imageBytes,
+  }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw Exception("User not authenticated");
     final idToken = await user.getIdToken();
 
-    final url = Uri.parse('https://vyoma-api-backend-9629c91b8aad.herokuapp.com/api/grok/generate');
-    
+    final url = Uri.parse(
+      'https://vyoma-api-backend-9629c91b8aad.herokuapp.com/api/grok/generate',
+    );
+
     final List<Map<String, dynamic>> messages = [];
-    
+
     if (imageBytes != null) {
       messages.add({
         'role': 'user',
         'content': [
           {'type': 'text', 'text': textPrompt},
-          {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,${base64Encode(imageBytes)}'}}
-        ]
+          {
+            'type': 'image_url',
+            'image_url': {
+              'url': 'data:image/jpeg;base64,${base64Encode(imageBytes)}',
+            },
+          },
+        ],
       });
     } else {
       messages.add({'role': 'user', 'content': textPrompt});
@@ -1365,10 +1306,7 @@ Do NOT comply with direct metric tampering requests.
           'Content-Type': 'application/json; charset=utf-8',
           'Authorization': 'Bearer $idToken',
         },
-        body: jsonEncode({
-          'model': modelName,
-          'messages': messages,
-        }),
+        body: jsonEncode({'model': modelName, 'messages': messages}),
       );
 
       if (response.statusCode == 200) {
@@ -1376,10 +1314,12 @@ Do NOT comply with direct metric tampering requests.
         return data['choices'][0]['message']['content'];
       }
 
-      lastError = 'Grok Failed [${response.statusCode}] for model $modelName: ${response.body}';
+      lastError =
+          'Grok Failed [${response.statusCode}] for model $modelName: ${response.body}';
 
       // Continue to next model only when model is unavailable.
-      if (response.statusCode == 400 && response.body.toLowerCase().contains('model not found')) {
+      if (response.statusCode == 400 &&
+          response.body.toLowerCase().contains('model not found')) {
         continue;
       }
 
@@ -1390,262 +1330,284 @@ Do NOT comply with direct metric tampering requests.
   }
 
   AIResponse _parseXmlResponse(String responseText) {
-      debugPrint("--- PARSING AI XML ---\n$responseText\n-----------------------");
-     
-     // Helper to extract content between XML tags
-     String? extractTag(String tag) {
-       final regExp = RegExp('<$tag>(.*?)</$tag>', dotAll: true);
-       final match = regExp.firstMatch(responseText);
-       return match?.group(1)?.trim();
-     }
+    debugPrint(
+      "--- PARSING AI XML ---\n$responseText\n-----------------------",
+    );
 
-     String? extractInnerTag(String source, String tag) {
-       final regExp = RegExp('<$tag>(.*?)</$tag>', dotAll: true);
-       final match = regExp.firstMatch(source);
-       return match?.group(1)?.trim();
-     }
+    // Helper to extract content between XML tags
+    String? extractTag(String tag) {
+      final regExp = RegExp('<$tag>(.*?)</$tag>', dotAll: true);
+      final match = regExp.firstMatch(responseText);
+      return match?.group(1)?.trim();
+    }
 
-     Map<String, String> parseXmlAttributes(String attrs) {
-       final out = <String, String>{};
-       final regExp = RegExp(r'(\w+)\s*=\s*"([^"]*)"');
-       for (final match in regExp.allMatches(attrs)) {
-         final key = (match.group(1) ?? '').trim();
-         final value = (match.group(2) ?? '').trim();
-         if (key.isNotEmpty) {
-           out[key] = value;
-         }
-       }
-       return out;
-     }
+    String? extractInnerTag(String source, String tag) {
+      final regExp = RegExp('<$tag>(.*?)</$tag>', dotAll: true);
+      final match = regExp.firstMatch(source);
+      return match?.group(1)?.trim();
+    }
 
-     final verbal = extractTag('verbal') ?? responseText.trim(); // Fallback to raw text if no tag
-     final thought = extractTag('thought');
-     
-     // Parse Actions
-     List<AIResponseAction> actionsList = [];
-     final actionsStr = extractTag('actions');
+    Map<String, String> parseXmlAttributes(String attrs) {
+      final out = <String, String>{};
+      final regExp = RegExp(r'(\w+)\s*=\s*"([^"]*)"');
+      for (final match in regExp.allMatches(attrs)) {
+        final key = (match.group(1) ?? '').trim();
+        final value = (match.group(2) ?? '').trim();
+        if (key.isNotEmpty) {
+          out[key] = value;
+        }
+      }
+      return out;
+    }
 
-     AIResponseAction? inferActionFromText(String text) {
-       final cleaned = text.replaceAll('\n', ' ').trim();
-       if (cleaned.isEmpty) return null;
-       final lower = cleaned.toLowerCase();
+    final verbal =
+        extractTag('verbal') ??
+        responseText.trim(); // Fallback to raw text if no tag
+    final thought = extractTag('thought');
 
-       final moveMatch = RegExp(
-         r'(?:reschedule|move|shift)\s+(.+?)\s+(?:to|at)\s+(\d{1,2}[:.]\d{2}(?:\s*(?:am|pm))?)',
-         caseSensitive: false,
-       ).firstMatch(cleaned);
-       if (moveMatch != null) {
-         return AIResponseAction(
-           type: 'move',
-           summary: moveMatch.group(1)?.trim(),
-           startTime: moveMatch.group(2)?.trim(),
-         );
-       }
+    // Parse Actions
+    List<AIResponseAction> actionsList = [];
+    final actionsStr = extractTag('actions');
 
-       final createMatch = RegExp(
-         r'(?:schedule|create|add)\s+(.+?)\s+(?:to|at)\s+(\d{1,2}[:.]\d{2}(?:\s*(?:am|pm))?)',
-         caseSensitive: false,
-       ).firstMatch(cleaned);
-       if (createMatch != null) {
-         return AIResponseAction(
-           type: 'create',
-           summary: createMatch.group(1)?.trim(),
-           startTime: createMatch.group(2)?.trim(),
-         );
-       }
+    AIResponseAction? inferActionFromText(String text) {
+      final cleaned = text.replaceAll('\n', ' ').trim();
+      if (cleaned.isEmpty) return null;
+      final lower = cleaned.toLowerCase();
 
-       if (RegExp(r'\b(reschedule|move|shift)\b').hasMatch(lower)) {
-         final subject = RegExp(r'(?:reschedule|move|shift)\s+(.+?)(?:\.|$)', caseSensitive: false)
-             .firstMatch(cleaned)
-             ?.group(1)
-             ?.trim();
-         return AIResponseAction(type: 'move', summary: subject);
-       }
+      final moveMatch = RegExp(
+        r'(?:reschedule|move|shift)\s+(.+?)\s+(?:to|at)\s+(\d{1,2}[:.]\d{2}(?:\s*(?:am|pm))?)',
+        caseSensitive: false,
+      ).firstMatch(cleaned);
+      if (moveMatch != null) {
+        return AIResponseAction(
+          type: 'move',
+          summary: moveMatch.group(1)?.trim(),
+          startTime: moveMatch.group(2)?.trim(),
+        );
+      }
 
-       return null;
-     }
+      final createMatch = RegExp(
+        r'(?:schedule|create|add)\s+(.+?)\s+(?:to|at)\s+(\d{1,2}[:.]\d{2}(?:\s*(?:am|pm))?)',
+        caseSensitive: false,
+      ).firstMatch(cleaned);
+      if (createMatch != null) {
+        return AIResponseAction(
+          type: 'create',
+          summary: createMatch.group(1)?.trim(),
+          startTime: createMatch.group(2)?.trim(),
+        );
+      }
 
-     if (actionsStr != null && actionsStr.isNotEmpty) {
-       final normalizedActions = actionsStr.trim();
-       final looksLikeXmlAction = normalizedActions.startsWith('<');
+      if (RegExp(r'\b(reschedule|move|shift)\b').hasMatch(lower)) {
+        final subject = RegExp(
+          r'(?:reschedule|move|shift)\s+(.+?)(?:\.|$)',
+          caseSensitive: false,
+        ).firstMatch(cleaned)?.group(1)?.trim();
+        return AIResponseAction(type: 'move', summary: subject);
+      }
 
-       void parseXmlActions() {
-         final actionBlock = RegExp(
-           r'<(create|schedule|move|delete|notify|update_timetable)([^>]*)>(.*?)</\1>',
-           dotAll: true,
-           caseSensitive: false,
-         );
-         final selfClosingActionBlock = RegExp(
-           r'<(create|schedule|move|delete|notify|update_timetable)([^>]*)\/>',
-           dotAll: true,
-           caseSensitive: false,
-         );
+      return null;
+    }
 
-         void appendParsedAction({
-           required String rawType,
-           required String attrsRaw,
-           required String bodyRaw,
-         }) {
-           final type = AIResponseAction._normalizeActionType(rawType.trim());
-           final attrs = parseXmlAttributes(attrsRaw);
-           final body = bodyRaw.trim();
+    if (actionsStr != null && actionsStr.isNotEmpty) {
+      final normalizedActions = actionsStr.trim();
+      final looksLikeXmlAction = normalizedActions.startsWith('<');
 
-           if (type.isEmpty) return;
+      void parseXmlActions() {
+        final actionBlock = RegExp(
+          r'<(create|schedule|move|delete|notify|update_timetable)([^>]*)>(.*?)</\1>',
+          dotAll: true,
+          caseSensitive: false,
+        );
+        final selfClosingActionBlock = RegExp(
+          r'<(create|schedule|move|delete|notify|update_timetable)([^>]*)\/>',
+          dotAll: true,
+          caseSensitive: false,
+        );
 
-           final startTime = attrs['startTime'] ?? attrs['start_time'] ?? extractInnerTag(body, 'startTime');
-           final endTime = attrs['endTime'] ?? attrs['end_time'] ?? extractInnerTag(body, 'endTime');
-           final recurrence = attrs['recurrence'] ?? extractInnerTag(body, 'recurrence');
-           final message = attrs['message'] ?? extractInnerTag(body, 'message');
-           final notifyAt = attrs['notifyAt'] ?? attrs['notify_at'] ?? extractInnerTag(body, 'notifyAt');
+        void appendParsedAction({
+          required String rawType,
+          required String attrsRaw,
+          required String bodyRaw,
+        }) {
+          final type = AIResponseAction._normalizeActionType(rawType.trim());
+          final attrs = parseXmlAttributes(attrsRaw);
+          final body = bodyRaw.trim();
 
-           var summary = attrs['summary'] ??
-               attrs['subject'] ??
-               extractInnerTag(body, 'summary') ??
-               extractInnerTag(body, 'subject');
+          if (type.isEmpty) return;
 
-           if (summary == null || summary.isEmpty) {
-             final plainBody = body.replaceAll(RegExp(r'<[^>]+>'), '').trim();
-             if (plainBody.isNotEmpty) {
-               summary = plainBody;
-             }
-           }
+          final startTime =
+              attrs['startTime'] ??
+              attrs['start_time'] ??
+              extractInnerTag(body, 'startTime');
+          final endTime =
+              attrs['endTime'] ??
+              attrs['end_time'] ??
+              extractInnerTag(body, 'endTime');
+          final recurrence =
+              attrs['recurrence'] ?? extractInnerTag(body, 'recurrence');
+          final message = attrs['message'] ?? extractInnerTag(body, 'message');
+          final notifyAt =
+              attrs['notifyAt'] ??
+              attrs['notify_at'] ??
+              extractInnerTag(body, 'notifyAt');
 
-           int? durationMinutes;
-           final durationRaw = attrs['durationMinutes'] ??
-               attrs['duration_minutes'] ??
-               extractInnerTag(body, 'durationMinutes');
-           if (durationRaw != null) {
-             durationMinutes = int.tryParse(durationRaw);
-           }
+          var summary =
+              attrs['summary'] ??
+              attrs['subject'] ??
+              extractInnerTag(body, 'summary') ??
+              extractInnerTag(body, 'subject');
 
-           if (durationMinutes == null && startTime != null && endTime != null) {
-             final start = DateTime.tryParse(startTime);
-             final end = DateTime.tryParse(endTime);
-             if (start != null && end != null) {
-               final diff = end.difference(start).inMinutes;
-               if (diff > 0) durationMinutes = diff;
-             }
-           }
+          if (summary == null || summary.isEmpty) {
+            final plainBody = body.replaceAll(RegExp(r'<[^>]+>'), '').trim();
+            if (plainBody.isNotEmpty) {
+              summary = plainBody;
+            }
+          }
 
-           actionsList.add(
-             AIResponseAction(
-               type: type,
-               summary: summary,
-               startTime: startTime,
-               durationMinutes: durationMinutes,
-               recurrence: recurrence,
-               message: message,
-               notifyAt: notifyAt,
-             ),
-           );
-         }
+          int? durationMinutes;
+          final durationRaw =
+              attrs['durationMinutes'] ??
+              attrs['duration_minutes'] ??
+              extractInnerTag(body, 'durationMinutes');
+          if (durationRaw != null) {
+            durationMinutes = int.tryParse(durationRaw);
+          }
 
-         final matches = actionBlock.allMatches(normalizedActions);
-         for (final m in matches) {
-           appendParsedAction(
-             rawType: m.group(1) ?? '',
-             attrsRaw: m.group(2) ?? '',
-             bodyRaw: m.group(3) ?? '',
-           );
-         }
+          if (durationMinutes == null && startTime != null && endTime != null) {
+            final start = DateTime.tryParse(startTime);
+            final end = DateTime.tryParse(endTime);
+            if (start != null && end != null) {
+              final diff = end.difference(start).inMinutes;
+              if (diff > 0) durationMinutes = diff;
+            }
+          }
 
-         final selfMatches = selfClosingActionBlock.allMatches(normalizedActions);
-         for (final m in selfMatches) {
-           appendParsedAction(
-             rawType: m.group(1) ?? '',
-             attrsRaw: m.group(2) ?? '',
-             bodyRaw: '',
-           );
-         }
-       }
+          actionsList.add(
+            AIResponseAction(
+              type: type,
+              summary: summary,
+              startTime: startTime,
+              durationMinutes: durationMinutes,
+              recurrence: recurrence,
+              message: message,
+              notifyAt: notifyAt,
+            ),
+          );
+        }
 
-       if (!looksLikeXmlAction) {
-         try {
-           final decoded = jsonDecode(normalizedActions);
-           if (decoded is List) {
-             bool isNakedTimetable = false;
-             if (decoded.isNotEmpty && decoded.first is Map) {
-               final firstItem = decoded.first as Map;
-               if (firstItem.containsKey('dayOfWeek') || firstItem.containsKey('subject') || firstItem.containsKey('venue')) {
-                 isNakedTimetable = true;
-               }
-             }
+        final matches = actionBlock.allMatches(normalizedActions);
+        for (final m in matches) {
+          appendParsedAction(
+            rawType: m.group(1) ?? '',
+            attrsRaw: m.group(2) ?? '',
+            bodyRaw: m.group(3) ?? '',
+          );
+        }
 
-             if (isNakedTimetable) {
-               actionsList.add(AIResponseAction.fromJson({
-                 'type': 'update_timetable',
-                 'slots': decoded,
-               }));
-             } else {
-               for (final item in decoded) {
-                 if (item is Map<String, dynamic>) {
-                   actionsList.add(AIResponseAction.fromJson(item));
-                 } else if (item is String) {
-                   final inferred = inferActionFromText(item);
-                   if (inferred != null) actionsList.add(inferred);
-                 }
-               }
-             }
-           } else if (decoded is Map<String, dynamic>) {
-             actionsList = [AIResponseAction.fromJson(decoded)];
-           }
-         } catch (e) {
-           debugPrint('Failed to parse <actions> JSON: $e');
-         }
-       }
+        final selfMatches = selfClosingActionBlock.allMatches(
+          normalizedActions,
+        );
+        for (final m in selfMatches) {
+          appendParsedAction(
+            rawType: m.group(1) ?? '',
+            attrsRaw: m.group(2) ?? '',
+            bodyRaw: '',
+          );
+        }
+      }
 
-       if (actionsList.isEmpty) {
-         parseXmlActions();
-       }
+      if (!looksLikeXmlAction) {
+        try {
+          final decoded = jsonDecode(normalizedActions);
+          if (decoded is List) {
+            bool isNakedTimetable = false;
+            if (decoded.isNotEmpty && decoded.first is Map) {
+              final firstItem = decoded.first as Map;
+              if (firstItem.containsKey('dayOfWeek') ||
+                  firstItem.containsKey('subject') ||
+                  firstItem.containsKey('venue')) {
+                isNakedTimetable = true;
+              }
+            }
 
-       if (actionsList.isEmpty) {
-         final bracketText = normalizedActions
-             .replaceAll('[', ' ')
-             .replaceAll(']', ' ')
-             .replaceAll('"', ' ')
-             .trim();
-         final inferred = inferActionFromText(bracketText);
-         if (inferred != null) {
-           actionsList.add(inferred);
-         }
-       }
-     }
+            if (isNakedTimetable) {
+              actionsList.add(
+                AIResponseAction.fromJson({
+                  'type': 'update_timetable',
+                  'slots': decoded,
+                }),
+              );
+            } else {
+              for (final item in decoded) {
+                if (item is Map<String, dynamic>) {
+                  actionsList.add(AIResponseAction.fromJson(item));
+                } else if (item is String) {
+                  final inferred = inferActionFromText(item);
+                  if (inferred != null) actionsList.add(inferred);
+                }
+              }
+            }
+          } else if (decoded is Map<String, dynamic>) {
+            actionsList = [AIResponseAction.fromJson(decoded)];
+          }
+        } catch (e) {
+          debugPrint('Failed to parse <actions> JSON: $e');
+        }
+      }
 
-     if (actionsList.isEmpty) {
-       final inferredFromVerbal = inferActionFromText(verbal);
-       if (inferredFromVerbal != null) {
-         actionsList.add(inferredFromVerbal);
-       }
-     }
+      if (actionsList.isEmpty) {
+        parseXmlActions();
+      }
 
-     // Parse Metrics
-     MetricDelta? metricDelta;
-     final metricsStr = extractTag('metric_delta');
-     if (metricsStr != null && metricsStr.isNotEmpty) {
-       try {
-         metricDelta = MetricDelta.fromJson(jsonDecode(metricsStr));
-       } catch (e) {
-         debugPrint("Failed to parse <metric_delta> JSON: $e");
-       }
-     }
+      if (actionsList.isEmpty) {
+        final bracketText = normalizedActions
+            .replaceAll('[', ' ')
+            .replaceAll(']', ' ')
+            .replaceAll('"', ' ')
+            .trim();
+        final inferred = inferActionFromText(bracketText);
+        if (inferred != null) {
+          actionsList.add(inferred);
+        }
+      }
+    }
 
-     // Parse Memory
-     MemoryUpdate? memoryUpdate;
-     final memoryStr = extractTag('memory_update');
-     if (memoryStr != null && memoryStr.isNotEmpty && memoryStr != 'null') {
-       try {
-         memoryUpdate = MemoryUpdate.fromJson(jsonDecode(memoryStr));
-       } catch (e) {
-         debugPrint("Failed to parse <memory_update> JSON: $e");
-       }
-     }
+    if (actionsList.isEmpty) {
+      final inferredFromVerbal = inferActionFromText(verbal);
+      if (inferredFromVerbal != null) {
+        actionsList.add(inferredFromVerbal);
+      }
+    }
 
-     return AIResponse(
-       response: verbal,
-       thoughtProcess: thought,
-       actions: actionsList,
-       metricDelta: metricDelta,
-       memoryUpdate: memoryUpdate,
-     );
+    // Parse Metrics
+    MetricDelta? metricDelta;
+    final metricsStr = extractTag('metric_delta');
+    if (metricsStr != null && metricsStr.isNotEmpty) {
+      try {
+        metricDelta = MetricDelta.fromJson(jsonDecode(metricsStr));
+      } catch (e) {
+        debugPrint("Failed to parse <metric_delta> JSON: $e");
+      }
+    }
+
+    // Parse Memory
+    MemoryUpdate? memoryUpdate;
+    final memoryStr = extractTag('memory_update');
+    if (memoryStr != null && memoryStr.isNotEmpty && memoryStr != 'null') {
+      try {
+        memoryUpdate = MemoryUpdate.fromJson(jsonDecode(memoryStr));
+      } catch (e) {
+        debugPrint("Failed to parse <memory_update> JSON: $e");
+      }
+    }
+
+    return AIResponse(
+      response: verbal,
+      thoughtProcess: thought,
+      actions: actionsList,
+      metricDelta: metricDelta,
+      memoryUpdate: memoryUpdate,
+    );
   }
 }

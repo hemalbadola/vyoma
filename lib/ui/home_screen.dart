@@ -11,13 +11,10 @@ import 'tabs/timetable_tab.dart'; // Added
 import 'widgets/chat_sheet.dart';
 import 'widgets/command_dock.dart';
 import 'widgets/background_mesh.dart';
-import 'widgets/api_key_manager.dart';
 import 'widgets/vault_journal_view.dart';
-import 'screens/notifications_screen.dart';
 import 'screens/friends_hub_screen.dart';
 import 'screens/profile_setup_screen.dart';
 import 'screens/settings_hub_screen.dart';
-import 'widgets/debug_seeder.dart';
 import '../core/user_service.dart';
 import '../core/telemetry_service.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -193,32 +190,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       child: Column(
                         children: [
                           _UtilityButton(
-                            icon: Icons.notifications_active_outlined,
-                            tooltip: 'Notifications',
-                            color: Colors.orangeAccent,
-                            onTap: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(builder: (_) => const NotificationsScreen()),
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 6),
-                          _UtilityButton(
-                            icon: Icons.bug_report_rounded,
-                            tooltip: 'API Key Manager',
-                            color: Colors.cyanAccent,
-                            onTap: () {
-                              showDialog(
-                                context: context,
-                                builder: (_) => const Dialog(
-                                  backgroundColor: Colors.transparent,
-                                  child: ApiKeyManager(),
-                                ),
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 6),
-                          _UtilityButton(
                             icon: Icons.settings_rounded,
                             tooltip: 'Settings Hub',
                             color: Colors.white70,
@@ -232,12 +203,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ),
                     ),
                   ),
-                ),
-                // 4. Debug Database Seeder (Only in debug mode)
-                const Positioned(
-                  bottom: 120, // Above command dock
-                  right: 16,
-                  child: SafeArea(child: DebugSeeder()),
                 ),
               ],
             ),
