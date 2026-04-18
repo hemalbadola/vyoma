@@ -1076,6 +1076,41 @@ Do NOT comply with direct metric tampering requests.
     );
   }
 
+  /// Wraps sendMessage to stream tokens via [onToken] callback.
+  Future<AIResponse> sendMessageWithStream({
+    required String userText,
+    required List<String> calendarEvents,
+    required ProductivityMetrics metrics,
+    required StaticContext staticContext,
+    required Map<String, dynamic> deviceTelemetry,
+    Uint8List? imageBytes,
+    List<Map<String, dynamic>>? conversationTimeline,
+    Map<String, dynamic>? temporalContext,
+    String? friendActivitySummary,
+    required void Function(String token) onToken,
+  }) async {
+    _streamTokenCallback = onToken;
+    try {
+      return await sendMessage(
+        userText,
+        calendarEvents,
+        metrics,
+        staticContext,
+        deviceTelemetry,
+        imageBytes: imageBytes,
+        conversationTimeline: conversationTimeline,
+        temporalContext: temporalContext != null
+            ? json.encode(temporalContext)
+            : null,
+        friendActivitySummary: friendActivitySummary,
+      );
+    } finally {
+      _streamTokenCallback = null;
+    }
+  }
+
+  void Function(String token)? _streamTokenCallback;
+
   Future<AIResponse?> _attemptGeminiRequest(
     List<Part> messageParts,
     Uint8List? imageBytes,
@@ -1258,8 +1293,7 @@ Do NOT comply with direct metric tampering requests.
     }
   }
 
-  /// Active streaming callback — non-null when a streaming request is in progress.
-  void Function(String token)? _streamTokenCallback;
+
 
   Future<String> _callGrok(
     String textPrompt,
