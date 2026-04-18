@@ -3,9 +3,9 @@ import cors from 'cors';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import admin from 'firebase-admin';
 
-// Initialize Firebase Admin (uses default credentials locally or via Heroku Env)
+// Initialize Firebase Admin (uses explicit projectId for verifyIdToken)
 admin.initializeApp({
-  credential: admin.credential.applicationDefault()
+  projectId: 'vyoma-in'
 });
 
 const app = express();
