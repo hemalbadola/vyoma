@@ -32,17 +32,28 @@ class TimetableSlot {
     final minute = parts[1];
     
     // If referenceStart is provided, check if end < start (12h rollover)
+    // Only apply this to typical college schedule hours (8 AM - 6 PM logic).
+    // If we get "00" or "01", it's likely a true 24h midnight crossing, so don't touch it.
     if (referenceStart != null && referenceStart.isNotEmpty) {
       final refParts = referenceStart.split(':');
       final refHour = int.tryParse(refParts[0]) ?? 0;
-      if (refHour >= 12 && hour < 12) {
+      if (refHour >= 12 && hour < 12 && hour >= 6) {
         hour += 12;
       }
     }
     
-    // Standalone heuristic: times 01:00-05:59 are almost certainly PM for a college schedule.
+    // Standalone heuristic: times 01:00-05:59 are almost certainly PM for a college schedule,
+    // UNLESS the reference start is late night (like 23:00).
     if (hour >= 1 && hour <= 5) {
-      hour += 12;
+      // If we're crossing midnight (e.g. 23:00 to 01:00), we don't want to make it 13:00.
+      bool isMidnightCross = false;
+      if (referenceStart != null && referenceStart.isNotEmpty) {
+        final refHour = int.tryParse(referenceStart.split(':')[0]) ?? 0;
+        if (refHour >= 20) isMidnightCross = true;
+      }
+      if (!isMidnightCross) {
+        hour += 12;
+      }
     }
     
     return '${hour.toString().padLeft(2, '0')}:$minute';

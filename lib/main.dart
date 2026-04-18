@@ -8,12 +8,48 @@ import 'core/calendar_service.dart';
 import 'core/ai_service.dart';
 import 'core/memory_service.dart'; 
 import 'core/timetable_service.dart'; // Added
+import 'core/task_service.dart';
+import 'dart:async';
+import 'package:app_links/app_links.dart';
 import 'core/notification_service.dart';
+import 'core/user_service.dart';
+import 'core/friend_service.dart';
+import 'core/cofocus_service.dart';
+import 'core/accountability_service.dart';
+import 'core/ping_service.dart';
+import 'core/telemetry_service.dart';
 import 'ui/war_room_viewmodel.dart';
 import 'ui/home_screen.dart'; 
 import 'ui/onboarding_screen.dart';
 
-void main() {
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'firebase_options.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    debugPrint("Firebase init failed: $e");
+  }
+
+  if (!kReleaseMode) {
+    try {
+      await dotenv.load(fileName: '.env.local');
+    } catch (_) {
+      try {
+        await dotenv.load(fileName: '.env');
+      } catch (e) {
+        debugPrint('Failed to load local env file: $e');
+      }
+    }
+  }
+
   ErrorWidget.builder = (FlutterErrorDetails details) {
     return Material(
       color: Colors.deepPurple,
@@ -43,42 +79,133 @@ class VyomaApp extends StatelessWidget {
       providers: [
         // 1. Auth (Singleton Factory)
         Provider<AuthManager>(
-          create: (_) => AuthManager(),
+          create: (_) {
+            debugPrint('PROVIDER_DEBUG: Creating AuthManager...');
+            final a = AuthManager();
+            debugPrint('PROVIDER_DEBUG: AuthManager CREATED OK');
+            return a;
+          },
         ),
         
         // 2. Services (Dependent on Auth or Standalone)
         ChangeNotifierProvider<MemoryService>(
-          create: (_) => MemoryService()..init(), // Init memory immediately
+          create: (_) {
+            debugPrint('PROVIDER_DEBUG: Creating MemoryService...');
+            final m = MemoryService()..init();
+            debugPrint('PROVIDER_DEBUG: MemoryService CREATED OK');
+            return m;
+          },
+        ),
+        ChangeNotifierProvider<UserService>(
+          create: (_) {
+            debugPrint('PROVIDER_DEBUG: Creating UserService...');
+            return UserService();
+          },
+        ),
+        ChangeNotifierProvider<FriendService>(
+          create: (_) {
+            debugPrint('PROVIDER_DEBUG: Creating FriendService...');
+            return FriendService();
+          },
+        ),
+        ChangeNotifierProvider<CoFocusService>(
+          create: (_) {
+            debugPrint('PROVIDER_DEBUG: Creating CoFocusService...');
+            return CoFocusService();
+          },
+        ),
+        Provider<AccountabilityService>(
+          create: (_) {
+            debugPrint('PROVIDER_DEBUG: Creating AccountabilityService...');
+            return AccountabilityService();
+          },
         ),
         ChangeNotifierProvider<AIService>(
-           create: (context) => AIService(Provider.of<MemoryService>(context, listen: false)),
+           create: (context) {
+             debugPrint('PROVIDER_DEBUG: Creating AIService...');
+             final ai = AIService(Provider.of<MemoryService>(context, listen: false));
+             debugPrint('PROVIDER_DEBUG: AIService CREATED OK');
+             return ai;
+           },
         ),
         ProxyProvider<AuthManager, CalendarService>(
-          update: (_, auth, previous) => previous ?? CalendarService(auth),
+          update: (_, auth, previous) {
+            if (previous != null) return previous;
+            debugPrint('PROVIDER_DEBUG: Creating CalendarService...');
+            final c = CalendarService(auth);
+            debugPrint('PROVIDER_DEBUG: CalendarService CREATED OK');
+            return c;
+          },
         ),
         Provider<NotificationService>(
-          create: (_) => NotificationService(),
+          create: (_) {
+            debugPrint('PROVIDER_DEBUG: Creating NotificationService...');
+            final n = NotificationService();
+            debugPrint('PROVIDER_DEBUG: NotificationService CREATED OK');
+            return n;
+          },
+        ),
+        Provider<PingService>(
+          create: (context) {
+            debugPrint('PROVIDER_DEBUG: Creating PingService...');
+            return PingService(Provider.of<NotificationService>(context, listen: false));
+          },
+        ),
+        ProxyProvider<UserService, TelemetryService>(
+          lazy: false,
+          update: (context, userService, previous) {
+            final t = previous ?? TelemetryService();
+            t.setUserService(userService);
+            return t;
+          },
         ),
         ChangeNotifierProxyProvider<CalendarService, TimetableService>(
-          create: (context) => TimetableService(Provider.of<CalendarService>(context, listen: false)),
+          create: (context) {
+            debugPrint('PROVIDER_DEBUG: Creating TimetableService...');
+            final t = TimetableService(Provider.of<CalendarService>(context, listen: false));
+            debugPrint('PROVIDER_DEBUG: TimetableService CREATED OK');
+            return t;
+          },
           update: (_, calendar, previous) => previous ?? TimetableService(calendar),
+        ),
+        ChangeNotifierProvider<TaskService>(
+          create: (context) {
+            debugPrint('PROVIDER_DEBUG: Creating TaskService...');
+            final t = TaskService(
+              accountability: Provider.of<AccountabilityService>(context, listen: false),
+              coFocusService: Provider.of<CoFocusService>(context, listen: false),
+              userService: Provider.of<UserService>(context, listen: false),
+            );
+            debugPrint('PROVIDER_DEBUG: TaskService CREATED OK');
+            return t;
+          },
         ),
 
         // 3. ViewModels (Dependent on Services)
-        ChangeNotifierProxyProvider4<CalendarService, AIService, TimetableService, NotificationService, WarRoomViewModel>(
-          create: (context) => WarRoomViewModel(
-            calendarService: Provider.of<CalendarService>(context, listen: false),
-            aiService: Provider.of<AIService>(context, listen: false),
-            timetableService: Provider.of<TimetableService>(context, listen: false),
-            notificationService: Provider.of<NotificationService>(context, listen: false),
-          ),
-          // Keep a stable VM instance; recreating it causes repeated session reloads.
-          update: (_, calendar, ai, timetable, notifications, previous) =>
+        ChangeNotifierProxyProvider6<CalendarService, AIService, TimetableService, NotificationService, FriendService, AccountabilityService, WarRoomViewModel>(
+          create: (context) {
+            debugPrint('PROVIDER_DEBUG: Creating WarRoomViewModel...');
+            final vm = WarRoomViewModel(
+              calendarService: Provider.of<CalendarService>(context, listen: false),
+              aiService: Provider.of<AIService>(context, listen: false),
+              timetableService: Provider.of<TimetableService>(context, listen: false),
+              notificationService: Provider.of<NotificationService>(context, listen: false),
+              friendService: Provider.of<FriendService>(context, listen: false),
+              accountabilityService: Provider.of<AccountabilityService>(context, listen: false),
+              telemetryService: Provider.of<TelemetryService>(context, listen: false),
+            );
+            debugPrint('PROVIDER_DEBUG: WarRoomViewModel CREATED OK');
+            return vm;
+          },
+          update: (context, calendar, ai, timetable, notifications, friend, acc, previous) =>
               previous ?? WarRoomViewModel(
                 calendarService: calendar,
                 aiService: ai,
                 timetableService: timetable,
                 notificationService: notifications,
+                friendService: friend,
+                accountabilityService: acc,
+                telemetryService: Provider.of<TelemetryService>(context, listen: false),
               ),
         ),
       ],
@@ -173,11 +300,49 @@ class _LaunchGate extends StatefulWidget {
 
 class _LaunchGateState extends State<_LaunchGate> {
   bool? _onboardingComplete;
+  late AppLinks _appLinks;
+  StreamSubscription<Uri>? _linkSubscription;
 
   @override
   void initState() {
     super.initState();
     _loadOnboardingFlag();
+    _initDeepLinks();
+  }
+
+  void _initDeepLinks() {
+    _appLinks = AppLinks();
+    
+    // Check initial link if app was cold-started by a link
+    _appLinks.getInitialLink().then((uri) {
+      if (uri != null) _handleLink(uri);
+    });
+
+    // Listen to incoming links when app is running or in background
+    _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
+      _handleLink(uri);
+    }, onError: (err) {
+      debugPrint("Deep Link Error: $err");
+    });
+  }
+
+  void _handleLink(Uri uri) {
+    debugPrint("Received deep link: $uri");
+    if (uri.scheme == 'vyoma' && uri.host == 'pact') {
+      final pactId = uri.queryParameters['id'];
+      if (pactId != null) {
+        // Wait a frame for providers to be ready if cold-starting
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          context.read<CoFocusService>().handleDeepLinkInvite(pactId);
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _linkSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadOnboardingFlag() async {
@@ -192,6 +357,48 @@ class _LaunchGateState extends State<_LaunchGate> {
     if (_onboardingComplete == null) {
       return const Scaffold(backgroundColor: Colors.black);
     }
-    return _onboardingComplete! ? const HomeScreen() : const OnboardingScreen();
+
+    return StreamBuilder<List<ConnectivityResult>>(
+      stream: Connectivity().onConnectivityChanged,
+      builder: (context, snapshot) {
+        bool isOffline = false;
+        if (snapshot.hasData) {
+          final results = snapshot.data!;
+          isOffline = results.isEmpty || results.contains(ConnectivityResult.none);
+        }
+
+        if (isOffline) {
+          return const Scaffold(
+            backgroundColor: Color(0xFF0F0F1A),
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.wifi_off_rounded, size: 64, color: Colors.white54),
+                  SizedBox(height: 24),
+                  Text(
+                    "CONNECTION LOST",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      letterSpacing: 2,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    "Vyoma requires an active internet connection\nfor AI generation and accountability sync.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white54, fontSize: 14),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return _onboardingComplete! ? const HomeScreen() : const OnboardingScreen();
+      },
+    );
   }
 }

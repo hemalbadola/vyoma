@@ -85,6 +85,11 @@ class AuthManagerDesktop implements AuthManager {
   }
 
   @override
+  void clearAuthCooldown() {
+    // Desktop flow has no transient interactive cooldown.
+  }
+
+  @override
   Future<void> signOut() async {
     _client?.close();
     _client = null;

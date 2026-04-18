@@ -226,15 +226,16 @@ lib/
    ```
 
 2. **Configure API Keys**
-    Use `--dart-define` at build/run time instead of hardcoding keys:
+   For local development only, create `.env.local` (never commit it):
 
-    ```bash
-    flutter run \
-       --dart-define=VYOMA_GEMINI_API_KEYS=key1,key2 \
-       --dart-define=VYOMA_NVIDIA_API_KEYS=nvkey1 \
-       --dart-define=VYOMA_GROK_API_KEYS=xkey1 \
-       --dart-define=VYOMA_SUPERMEMORY_API_KEY=sm_key
-    ```
+   ```bash
+   VYOMA_GEMINI_API_KEYS=key1,key2
+   VYOMA_NVIDIA_API_KEYS=nvkey1
+   VYOMA_GROK_API_KEYS=xkey1
+   VYOMA_SUPERMEMORY_API_KEY=sm_key
+   ```
+
+   Release builds intentionally disable client-side provider keys. Use a backend proxy for all LLM and memory-provider calls in production.
 
     For OAuth:
     ```bash
@@ -242,15 +243,20 @@ lib/
        --dart-define=VYOMA_DESKTOP_CLIENT_ID=... \
        --dart-define=VYOMA_DESKTOP_CLIENT_SECRET=... \
        --dart-define=VYOMA_IOS_CLIENT_ID=... \
-       --dart-define=VYOMA_ANDROID_CLIENT_ID=...
+       --dart-define=VYOMA_ANDROID_CLIENT_ID=... \
+       --dart-define=VYOMA_WEB_CLIENT_ID=...
     ```
 
-    For production security, route LLM requests through your backend instead of shipping provider keys in the client.
+    Notes:
+    - `VYOMA_WEB_CLIENT_ID` should be your Google OAuth "Web application" client ID.
+    - Android sign-in uses `VYOMA_WEB_CLIENT_ID` as `serverClientId`.
+
+   For production security, route LLM requests through your backend instead of shipping provider keys in the client.
 
 3. **Android Google Sign-In Setup**
     - Ensure `applicationId` matches your Android OAuth client package.
     - Add SHA-1/SHA-256 fingerprints in Google Cloud Console.
-    - Add `android/app/google-services.json` for the same project.
+   - `android/app/google-services.json` is only required if you integrate Firebase services.
     - If sign-in fails with `10` / `DEVELOPER_ERROR`, this config is usually the cause.
    
 4. **Required Keys:**

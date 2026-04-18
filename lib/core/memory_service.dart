@@ -286,6 +286,14 @@ class MemoryService extends ChangeNotifier {
     await _saveMemory();
   }
 
+  Future<void> deleteJournalEntry(String id) async {
+    if (_memory[kJournalEntries] == null) return;
+    final list = _memory[kJournalEntries] as List;
+    list.removeWhere((e) => e['id'] == id);
+    _memory[kJournalEntries] = list;
+    await _saveMemory();
+  }
+
   List<JournalEntry> getJournalEntries({int? limit}) {
     if (_memory[kJournalEntries] == null) return [];
 

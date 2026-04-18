@@ -5,9 +5,13 @@ import 'package:intl/intl.dart';
 import 'package:googleapis/calendar/v3.dart' as calendar;
 import '../../core/calendar_service.dart';
 import '../../core/memory_service.dart';
+import '../../core/task_service.dart';
+import '../../core/timetable_service.dart';
+import '../../core/models/timetable.dart';
 import '../../ui/war_room_viewmodel.dart';
 import '../../ui/widgets/debrief_card.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter/services.dart';
 import '../../ui/widgets/chat_sheet.dart';
 import '../../ui/screens/memory_vault_screen.dart';
 
@@ -193,12 +197,16 @@ class MissionTab extends StatelessWidget {
                 builder: (context, vm, memory, _) {
                   final energy = _deriveEnergyState(vm);
                   final suggestions = _getContextualSuggestions(vm, memory);
+                  final taskService = Provider.of<TaskService>(context);
+                  final timetableService = Provider.of<TimetableService>(context);
 
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _buildHeader(context, vm),
                       _buildEnergyHero(context, energy, vm),
+                      _buildNextClass(context, timetableService),
+                      _buildTaskBriefing(context, taskService),
                       _buildNextUp(context),
                       _buildSuggestions(context, suggestions, vm),
                       _buildSmartRecap(context, memory),
@@ -345,6 +353,282 @@ class MissionTab extends StatelessWidget {
     ).animate().fadeIn(duration: 500.ms, delay: 100.ms).slideY(begin: 0.05);
   }
 
+  // --- Next Class from Timetable ---
+  Widget _buildNextClass(BuildContext context, TimetableService timetableService) {
+    final slots = timetableService.slots;
+    if (slots.isEmpty) return const SizedBox.shrink();
+
+    final now = DateTime.now();
+    final todaySlots = slots.where((s) {
+      final weekday = _dayNameToWeekday(s.dayOfWeek);
+      return weekday == now.weekday;
+    }).toList()
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+
+    if (todaySlots.isEmpty) return const SizedBox.shrink();
+
+    // Find next upcoming slot
+    TimetableSlot? nextSlot;
+    for (final slot in todaySlots) {
+      final parts = slot.startTime.split(':');
+      final slotTime = DateTime(now.year, now.month, now.day,
+          int.parse(parts[0]), int.parse(parts[1]));
+      if (slotTime.isAfter(now)) {
+        nextSlot = slot;
+        break;
+      }
+    }
+
+    if (nextSlot == null) return const SizedBox.shrink();
+
+    final startParts = nextSlot.startTime.split(':');
+    final startTime = DateTime(now.year, now.month, now.day,
+        int.parse(startParts[0]), int.parse(startParts[1]));
+    final minsUntil = startTime.difference(now).inMinutes;
+    final countdown = minsUntil < 60 
+        ? '${minsUntil}min' 
+        : '${(minsUntil / 60).toStringAsFixed(0)}h ${minsUntil % 60}m';
+
+    final isImminent = minsUntil <= 15;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isImminent ? kWarm.withValues(alpha: 0.06) : kCardBg,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isImminent ? kWarm.withValues(alpha: 0.25) : kBorder,
+            width: isImminent ? 1 : 0.5,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: isImminent
+                    ? kWarm.withValues(alpha: 0.12)
+                    : kAccent.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                isImminent ? Icons.directions_run_rounded : Icons.school_rounded,
+                color: isImminent ? kWarm : kAccentDim,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    nextSlot.subject,
+                    style: GoogleFonts.inter(
+                      color: kText,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${nextSlot.venue} · ${nextSlot.startTime}–${nextSlot.endTime}',
+                    style: GoogleFonts.inter(color: kTextMuted, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: isImminent
+                    ? kWarm.withValues(alpha: 0.15)
+                    : kAccent.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'in $countdown',
+                style: GoogleFonts.jetBrainsMono(
+                  color: isImminent ? kWarmLight : kAccentLight,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ).animate().fadeIn(duration: 400.ms, delay: 150.ms).slideX(begin: 0.03);
+  }
+
+  // --- Task Briefing (Carryover + Due Today) ---
+  Widget _buildTaskBriefing(BuildContext context, TaskService taskService) {
+    final overdue = taskService.overdueTasks;
+    final dueToday = taskService.dueTodayTasks;
+    final carryover = taskService.getCarryoverTasks()
+        .where((t) => !t.isOverdue && !t.isDueToday) // Don't double-count
+        .take(3)
+        .toList();
+
+    if (overdue.isEmpty && dueToday.isEmpty && carryover.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final allItems = [...overdue, ...dueToday, ...carryover];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'TASKS',
+                style: GoogleFonts.inter(
+                  color: kTextMuted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.5,
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (overdue.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: kRose.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '${overdue.length} overdue',
+                    style: GoogleFonts.inter(
+                      color: kRose,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...allItems.take(5).toList().asMap().entries.map((entry) {
+            final task = entry.value;
+            final isOverdue = task.isOverdue;
+            final isDue = task.isDueToday;
+            final daysLeft = task.daysUntilDeadline;
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: GestureDetector(
+                onTap: () {
+                  HapticFeedback.mediumImpact();
+                  taskService.completeTask(task.id);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: isOverdue
+                        ? kRose.withValues(alpha: 0.04)
+                        : kCardBg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isOverdue
+                        ? kRose.withValues(alpha: 0.2)
+                        : isDue
+                            ? kWarm.withValues(alpha: 0.15)
+                            : kBorder,
+                    width: 0.5,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: task.priority == 'high'
+                            ? kRose
+                            : task.priority == 'low'
+                                ? kTextMuted
+                                : kAccent,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            task.title,
+                            style: GoogleFonts.inter(
+                              color: kText.withValues(alpha: 0.9),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          if (task.project != null) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              task.project!,
+                              style: GoogleFonts.inter(
+                                color: kTextMuted,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (daysLeft != null)
+                      Text(
+                        isOverdue
+                            ? '${(-daysLeft)}d late'
+                            : isDue
+                                ? 'today'
+                                : '${daysLeft}d',
+                        style: GoogleFonts.jetBrainsMono(
+                          color: isOverdue
+                              ? kRose
+                              : isDue
+                                  ? kWarm
+                                  : kTextMuted,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            )).animate(delay: (60 * entry.key).ms).fadeIn().slideX(begin: 0.03);
+          }),
+        ],
+      ),
+    ).animate().fadeIn(delay: 200.ms);
+  }
+
+  int _dayNameToWeekday(String dayName) {
+    switch (dayName.toLowerCase()) {
+      case 'monday': return DateTime.monday;
+      case 'tuesday': return DateTime.tuesday;
+      case 'wednesday': return DateTime.wednesday;
+      case 'thursday': return DateTime.thursday;
+      case 'friday': return DateTime.friday;
+      case 'saturday': return DateTime.saturday;
+      case 'sunday': return DateTime.sunday;
+      default: return -1;
+    }
+  }
+
   Widget _buildNextUp(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 28, 24, 0),
@@ -374,8 +658,7 @@ class MissionTab extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          FutureBuilder<List<calendar.Event>>(
-            future: Provider.of<CalendarService>(context, listen: false).syncEvents(),
+          _SyncEventsWrapper(
             builder: (context, snapshot) {
               if (!snapshot.hasData || snapshot.data!.isEmpty) {
                 return _buildEmptySchedule();
@@ -936,4 +1219,31 @@ class _Suggestion {
     required this.action,
     required this.color,
   });
+}
+
+
+class _SyncEventsWrapper extends StatefulWidget {
+  final Widget Function(BuildContext, AsyncSnapshot<List<calendar.Event>>) builder;
+  const _SyncEventsWrapper({required this.builder});
+
+  @override
+  State<_SyncEventsWrapper> createState() => _SyncEventsWrapperState();
+}
+
+class _SyncEventsWrapperState extends State<_SyncEventsWrapper> {
+  late Future<List<calendar.Event>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = Provider.of<CalendarService>(context, listen: false).syncEvents();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<calendar.Event>>(
+      future: _future,
+      builder: widget.builder,
+    );
+  }
 }

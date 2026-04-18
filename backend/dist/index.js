@@ -5,7 +5,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
-const generative_ai_1 = require("@google/generative-ai");
 const firebase_admin_1 = __importDefault(require("firebase-admin"));
 // Initialize Firebase Admin (uses default credentials locally or via Heroku Env)
 firebase_admin_1.default.initializeApp({
@@ -30,23 +29,21 @@ app.post('/api/gemini/generate', async (req, res) => {
         if (!userId) {
             return res.status(401).json({ error: 'Unauthorized: Invalid token user' });
         }
-        // 3. Extract request body
-        const { prompt, modelName = 'gemini-2.5-flash' } = req.body;
-        if (!prompt) {
-            return res.status(400).json({ error: 'Bad Request: prompt is required' });
-        }
-        // 4. Read secret keys from ENV (Not bundled in frontend)
+        // 3. Forward request directly to Gemini API
         const apiKey = process.env.GEMINI_API_KEY;
         if (!apiKey) {
             console.error('Server configuration error: GEMINI_API_KEY not found');
             return res.status(500).json({ error: 'Server configuration error' });
         }
-        // 5. Call Gemini
-        const genAI = new generative_ai_1.GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: modelName });
-        const result = await model.generateContent(prompt);
-        const text = result.response.text();
-        res.json({ text });
+        const { modelName = 'gemini-2.5-flash' } = req.body;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+        const geminiRes = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(req.body.payload || req.body),
+        });
+        const data = await geminiRes.json();
+        res.status(geminiRes.status).json(data);
     }
     catch (error) {
         console.error('API Error:', error);

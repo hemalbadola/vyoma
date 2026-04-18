@@ -6,6 +6,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../core/ai_service.dart';
 import '../../core/memory_service.dart';
+import '../../core/task_service.dart';
 import '../war_room_viewmodel.dart';
 
 class IntelTab extends StatelessWidget {
@@ -42,6 +43,8 @@ class IntelTab extends StatelessWidget {
       streakDays: vm.journalStreakDays,
     );
 
+    final taskService = Provider.of<TaskService>(context, listen: false);
+
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 120),
       child: Center(
@@ -73,6 +76,10 @@ class IntelTab extends StatelessWidget {
 
               // Metric Cards Row
               _buildMetricRow(metrics, insights),
+              const SizedBox(height: 24),
+
+              // Weekly Retrospective
+              _buildWeeklyRetro(taskService),
               const SizedBox(height: 24),
 
               // AI Coach Digest
@@ -338,6 +345,214 @@ class IntelTab extends StatelessWidget {
               fontSize: 11,
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWeeklyRetro(TaskService taskService) {
+    return FutureBuilder<Map<String, Map<String, dynamic>>>(
+      future: taskService.getDailyMetrics(days: 14),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final allData = snapshot.data!;
+        final now = DateTime.now();
+        final weekAgoStr = now.subtract(const Duration(days: 7)).toIso8601String().substring(0, 10);
+        final twoWeeksAgoStr = now.subtract(const Duration(days: 14)).toIso8601String().substring(0, 10);
+
+        // Split into this week and last week
+        int thisWeekFocus = 0, lastWeekFocus = 0;
+        int thisWeekTasks = 0, lastWeekTasks = 0;
+        int thisWeekDistractions = 0, lastWeekDistractions = 0;
+
+        final dailyFocus = <String, int>{};
+
+        for (final entry in allData.entries) {
+          final date = entry.key;
+          final m = entry.value;
+          final focus = (m['focusMinutes'] ?? 0) as int;
+          final tasks = (m['tasksCompleted'] ?? 0) as int;
+          final distractions = (m['distractionCount'] ?? 0) as int;
+
+          if (date.compareTo(weekAgoStr) >= 0) {
+            thisWeekFocus += focus;
+            thisWeekTasks += tasks;
+            thisWeekDistractions += distractions;
+            dailyFocus[date] = focus;
+          } else if (date.compareTo(twoWeeksAgoStr) >= 0) {
+            lastWeekFocus += focus;
+            lastWeekTasks += tasks;
+            lastWeekDistractions += distractions;
+          }
+        }
+
+        // Build 7-day bars
+        final bars = <_DayBar>[];
+        for (int i = 6; i >= 0; i--) {
+          final date = now.subtract(Duration(days: i));
+          final dateStr = date.toIso8601String().substring(0, 10);
+          final dayLabel = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][date.weekday - 1];
+          bars.add(_DayBar(
+            label: dayLabel,
+            focusMinutes: dailyFocus[dateStr] ?? 0,
+            isToday: i == 0,
+          ));
+        }
+
+        final maxFocus = bars.map((b) => b.focusMinutes).fold(0, math.max);
+        final focusDelta = lastWeekFocus > 0
+            ? ((thisWeekFocus - lastWeekFocus) / lastWeekFocus * 100).round()
+            : 0;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'WEEKLY RETROSPECTIVE',
+              style: GoogleFonts.inter(
+                color: kTextMuted,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1.5,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: kCardBg,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: kBorder, width: 0.5),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Bar chart
+                  SizedBox(
+                    height: 120,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: bars.map((bar) {
+                        final height = maxFocus > 0
+                            ? (bar.focusMinutes / maxFocus * 80).clamp(4.0, 80.0)
+                            : 4.0;
+                        return Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 3),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                if (bar.focusMinutes > 0)
+                                  Text(
+                                    (bar.focusMinutes / 60).toStringAsFixed(1),
+                                    style: GoogleFonts.jetBrainsMono(
+                                      color: kTextMuted,
+                                      fontSize: 8,
+                                    ),
+                                  ),
+                                const SizedBox(height: 4),
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 600),
+                                  height: height,
+                                  decoration: BoxDecoration(
+                                    color: bar.isToday
+                                        ? kAccent
+                                        : kAccent.withValues(alpha: 0.3),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  bar.label,
+                                  style: GoogleFonts.inter(
+                                    color: bar.isToday ? kText : kTextMuted,
+                                    fontSize: 9,
+                                    fontWeight: bar.isToday ? FontWeight.w600 : FontWeight.w400,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // Summary stats
+                  Row(
+                    children: [
+                      _buildRetroStat(
+                        'Focus',
+                        '${(thisWeekFocus / 60).toStringAsFixed(1)}h',
+                        delta: focusDelta,
+                      ),
+                      const SizedBox(width: 24),
+                      _buildRetroStat(
+                        'Tasks',
+                        '$thisWeekTasks',
+                        delta: lastWeekTasks > 0
+                            ? ((thisWeekTasks - lastWeekTasks) / lastWeekTasks * 100).round()
+                            : 0,
+                      ),
+                      const SizedBox(width: 24),
+                      _buildRetroStat(
+                        'Distractions',
+                        '$thisWeekDistractions',
+                        delta: lastWeekDistractions > 0
+                            ? -((thisWeekDistractions - lastWeekDistractions) / lastWeekDistractions * 100).round()
+                            : 0,
+                        invertColor: true,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ).animate().fadeIn(delay: 350.ms);
+      },
+    );
+  }
+
+  Widget _buildRetroStat(String label, String value, {int delta = 0, bool invertColor = false}) {
+    final isPositive = invertColor ? delta < 0 : delta > 0;
+    final deltaColor = delta == 0 ? kTextMuted : (isPositive ? kAccent : kRose);
+    final deltaPrefix = delta > 0 ? '+' : '';
+
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label.toUpperCase(),
+            style: GoogleFonts.inter(
+              color: kTextMuted,
+              fontSize: 9,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: GoogleFonts.jetBrainsMono(
+              color: kText,
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (delta != 0)
+            Text(
+              '$deltaPrefix$delta% vs last week',
+              style: GoogleFonts.inter(
+                color: deltaColor,
+                fontSize: 9,
+              ),
+            ),
         ],
       ),
     );
@@ -785,4 +1000,12 @@ class _DigestLine {
   final Color color;
 
   const _DigestLine({required this.icon, required this.text, required this.color});
+}
+
+class _DayBar {
+  final String label;
+  final int focusMinutes;
+  final bool isToday;
+
+  const _DayBar({required this.label, required this.focusMinutes, required this.isToday});
 }

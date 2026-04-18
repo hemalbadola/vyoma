@@ -130,10 +130,14 @@ class TimetableService extends ChangeNotifier {
           int.parse(startTimeParts[0]), int.parse(startTimeParts[1])
         );
         
-        final endDateTime = DateTime(
+        var endDateTime = DateTime(
           baseDate.year, baseDate.month, baseDate.day, 
           int.parse(endTimeParts[0]), int.parse(endTimeParts[1])
         );
+
+        if (endDateTime.isBefore(startDateTime)) {
+          endDateTime = endDateTime.add(const Duration(days: 1));
+        }
 
         debugPrint("SYNC: ${slot.dayOfWeek} ${slot.subject} ${slot.startTime}-${slot.endTime} @ ${slot.venue} → $startDateTime to $endDateTime");
 

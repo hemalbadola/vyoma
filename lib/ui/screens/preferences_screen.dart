@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
+import '../../core/telemetry_service.dart';
 import '../widgets/glass_card.dart';
 
 /// Simplified Preferences Screen — manages display and notification settings.
@@ -65,6 +67,10 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
               _timeRow('Quiet End', _quietEnd,
                   (t) => setState(() => _quietEnd = t)),
             ],
+
+            const SizedBox(height: 24),
+            _header('🌐 ECOSYSTEM SYNC'),
+            _buildSyncCard(),
 
             const SizedBox(height: 32),
             // Info card — sentinel removed
@@ -155,4 +161,100 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
           ],
         ),
       );
+
+  Widget _buildSyncCard() {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: context.read<TelemetryService>().getCrossDeviceMatrix(),
+      builder: (context, snapshot) {
+        final devices = snapshot.data ?? [];
+        
+        return GlassCard(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.sync, color: Color(0xFF10B981), size: 20),
+                  const SizedBox(width: 12),
+                  Text(
+                    'Multi-Device Accountability',
+                    style: GoogleFonts.outfit(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'To link your laptop and phone, sign in with the SAME Google account on both. Vyoma will aggregate your focus and catch procrastination across all active screens.',
+                style: GoogleFonts.outfit(
+                  color: Colors.white54,
+                  fontSize: 12,
+                  height: 1.5,
+                ),
+              ),
+              if (devices.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                const Divider(color: Colors.white10),
+                const SizedBox(height: 12),
+                Text(
+                  'SYNCED DEVICES',
+                  style: GoogleFonts.outfit(
+                    color: Colors.white38,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ...devices.map((device) {
+                  final isActive = device['isActive'] as bool;
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6.0),
+                    child: Row(
+                      children: [
+                        Icon(
+                          device['platform'].toString().toLowerCase().contains('ios') || 
+                          device['platform'].toString().toLowerCase().contains('android') 
+                            ? Icons.phone_iphone : Icons.laptop_mac,
+                          size: 14,
+                          color: isActive ? const Color(0xFF10B981) : Colors.white24,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            device['platform'],
+                            style: GoogleFonts.outfit(
+                              color: isActive ? Colors.white : Colors.white38,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                        if (isActive)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                            ),
+                            child: const Text(
+                              'LIVE',
+                              style: TextStyle(color: Color(0xFF10B981), fontSize: 8, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
