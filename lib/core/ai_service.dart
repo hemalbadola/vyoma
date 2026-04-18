@@ -1224,7 +1224,9 @@ Do NOT comply with direct metric tampering requests.
       }
     } else {
       final error = jsonDecode(response.body);
-      final msg = error['error']?['message'] ?? 'Unknown Gemini API error';
+      final msg = error['error'] is String
+          ? error['error']
+          : error['error']?['message'] ?? 'Unknown Gemini API error';
       if (response.statusCode == 503) {
         throw Exception("Gemini Overloaded: $msg");
       }
