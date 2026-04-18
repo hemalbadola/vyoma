@@ -11,9 +11,46 @@ import 'auth_manager_desktop.dart' if (dart.library.html) 'auth_manager_web.dart
 import 'auth_manager_mobile.dart';
 // import 'auth_manager_desktop.dart'; // Duplicate removed, already imported above conditionally/directly
 
+class AuthCooldownException implements Exception {
+  final Duration retryAfter;
+
+  const AuthCooldownException(this.retryAfter);
+
+  @override
+  String toString() {
+    final mins = retryAfter.inMinutes;
+    final secs = retryAfter.inSeconds % 60;
+    if (mins > 0) {
+      return secs > 0
+          ? 'Auth cooldown active. Retry in ${mins}m ${secs}s.'
+          : 'Auth cooldown active. Retry in ${mins}m.';
+    }
+    return 'Auth cooldown active. Retry in a few seconds.';
+  }
+}
+
+class AuthConfigurationException implements Exception {
+  final String message;
+
+  const AuthConfigurationException(this.message);
+
+  @override
+  String toString() => message;
+}
+
+class AuthCancelledException implements Exception {
+  final String message;
+
+  const AuthCancelledException(this.message);
+
+  @override
+  String toString() => message;
+}
+
 abstract class AuthManager {
   Future<http.Client> getAuthenticatedClient();
   Future<CalendarApi> getCalendarApi();
+  void clearAuthCooldown();
   Future<void> signOut();
 
   factory AuthManager() {

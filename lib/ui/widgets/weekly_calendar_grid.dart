@@ -25,13 +25,19 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
   bool _isLoading = true;
   String? _error;
   Timer? _pollTimer;
+  Timer? _cooldownRetryTimer;
+
+  bool _refreshInProgress = false;
 
   @override
   void initState() {
     super.initState();
-    _refreshWeek();
+    // Load first, then start polling only on success.
+    _refreshWeek().then((_) => _startPollTimer());
+  }
 
-    // Keep grid fresh so edits from chat-agent/user appear quickly.
+  void _startPollTimer() {
+    _pollTimer?.cancel();
     _pollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       if (mounted) {
         _refreshWeek(silent: true);
@@ -42,11 +48,76 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _cooldownRetryTimer?.cancel();
     _verticalController.dispose();
     super.dispose();
   }
 
+  bool _isCooldownError(Object error) {
+    if (error is CalendarAuthCooldownException) return true;
+
+    final raw = error.toString().toLowerCase();
+    return raw.contains('calendar auth on cooldown') ||
+        raw.contains('google sign-in is on cooldown');
+  }
+
+  Duration _cooldownRemainingForError(Object error, CalendarService service) {
+    if (error is CalendarAuthCooldownException) {
+      return error.retryAfter;
+    }
+
+    return service.initCooldownRemaining ?? const Duration(seconds: 30);
+  }
+
+  String _formatRetryDelay(Duration value) {
+    final safe = value.isNegative ? Duration.zero : value;
+    final mins = safe.inMinutes;
+    final secs = safe.inSeconds % 60;
+
+    if (mins > 0) {
+      return secs > 0 ? '${mins}m ${secs}s' : '${mins}m';
+    }
+    return '${safe.inSeconds.clamp(1, 59)}s';
+  }
+
+  String _friendlyCalendarError(Object error) {
+    final raw = error.toString().toLowerCase();
+
+    if (raw.contains('google sign-in failed') ||
+        raw.contains('oauth client') ||
+        raw.contains('developer_error')) {
+      return 'Google Calendar sign-in is misconfigured. Check Android OAuth client package/SHA and serverClientId.';
+    }
+    if (raw.contains('401') ||
+        raw.contains('403') ||
+        raw.contains('unauthorized') ||
+        raw.contains('invalid_grant') ||
+        raw.contains('refresh')) {
+      return 'Calendar authorization failed. Reconnect Google Calendar and retry.';
+    }
+    if (raw.contains('sockete') || raw.contains('timeout')) {
+      return 'Calendar sync timed out. Check your connection and retry.';
+    }
+    return 'Calendar sync failed. Please retry.';
+  }
+
+  void _scheduleCooldownRetry(Duration remaining) {
+    _cooldownRetryTimer?.cancel();
+    final delay = remaining > Duration.zero
+        ? remaining
+        : const Duration(seconds: 2);
+
+    _cooldownRetryTimer = Timer(delay + const Duration(seconds: 1), () {
+      if (!mounted) return;
+      _refreshWeek().then((_) => _startPollTimer());
+    });
+  }
+
   Future<void> _refreshWeek({bool silent = false}) async {
+    // Guard: skip if another refresh is already running.
+    if (_refreshInProgress) return;
+    _refreshInProgress = true;
+
     if (!silent) {
       setState(() {
         _isLoading = true;
@@ -68,10 +139,26 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
       });
     } catch (e) {
       if (!mounted) return;
+
+      if (_isCooldownError(e)) {
+        final remaining = _cooldownRemainingForError(e, service);
+        setState(() {
+          _isLoading = false;
+          _error =
+              'Calendar auth is temporarily paused. Auto-retrying in ${_formatRetryDelay(remaining)}.';
+        });
+        _scheduleCooldownRetry(remaining);
+        return;
+      }
+
       setState(() {
         _isLoading = false;
-        _error = e.toString();
+        _error = _friendlyCalendarError(e);
       });
+      _pollTimer?.cancel();
+      _pollTimer = null;
+    } finally {
+      _refreshInProgress = false;
     }
   }
 
@@ -80,11 +167,17 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
     gcal.Event? event,
   }) async {
     final summaryController = TextEditingController(text: event?.summary ?? '');
-    final locationController = TextEditingController(text: event?.location ?? '');
-    final noteController = TextEditingController(text: event?.description ?? '');
+    final locationController = TextEditingController(
+      text: event?.location ?? '',
+    );
+    final noteController = TextEditingController(
+      text: event?.description ?? '',
+    );
 
     DateTime start = _displayDateTime(event?.start) ?? initialStart;
-    DateTime end = _displayDateTime(event?.end) ?? initialStart.add(const Duration(hours: 1));
+    DateTime end =
+        _displayDateTime(event?.end) ??
+        initialStart.add(const Duration(hours: 1));
 
     Future<void> pickStart() async {
       final pickedDate = await showDatePicker(
@@ -151,7 +244,10 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
               backgroundColor: const Color(0xFF12131A),
               title: Text(
                 event == null ? 'Add Event' : 'Edit Event',
-                style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700),
+                style: GoogleFonts.inter(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               content: SizedBox(
                 width: 420,
@@ -222,11 +318,17 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
                 if (event != null)
                   TextButton(
                     onPressed: () => Navigator.pop(ctx, 'delete'),
-                    child: const Text('Delete', style: TextStyle(color: Colors.redAccent)),
+                    child: const Text(
+                      'Delete',
+                      style: TextStyle(color: Colors.redAccent),
+                    ),
                   ),
                 TextButton(
                   onPressed: () => Navigator.pop(ctx, 'cancel'),
-                  child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(color: Colors.white70),
+                  ),
                 ),
                 FilledButton(
                   onPressed: () => Navigator.pop(ctx, 'save'),
@@ -247,9 +349,15 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
         await service.deleteEvent(event!.id!);
       } else if (action == 'save') {
         final updated = gcal.Event(
-          summary: summaryController.text.trim().isEmpty ? 'Untitled' : summaryController.text.trim(),
-          location: locationController.text.trim().isEmpty ? null : locationController.text.trim(),
-          description: noteController.text.trim().isEmpty ? null : noteController.text.trim(),
+          summary: summaryController.text.trim().isEmpty
+              ? 'Untitled'
+              : summaryController.text.trim(),
+          location: locationController.text.trim().isEmpty
+              ? null
+              : locationController.text.trim(),
+          description: noteController.text.trim().isEmpty
+              ? null
+              : noteController.text.trim(),
           start: gcal.EventDateTime(dateTime: start),
           end: gcal.EventDateTime(dateTime: end),
         );
@@ -264,9 +372,20 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
       await _refreshWeek();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Calendar operation failed: $e')),
-      );
+
+      String message;
+      if (_isCooldownError(e)) {
+        final remaining = _cooldownRemainingForError(e, service);
+        message =
+            'Calendar auth is cooling down. Auto-retrying in ${_formatRetryDelay(remaining)}.';
+        _scheduleCooldownRetry(remaining);
+      } else {
+        message = _friendlyCalendarError(e);
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -287,7 +406,11 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
             children: [
               IconButton(
                 onPressed: () {
-                  setState(() => _weekStart = _weekStart.subtract(const Duration(days: 7)));
+                  setState(
+                    () => _weekStart = _weekStart.subtract(
+                      const Duration(days: 7),
+                    ),
+                  );
                   _refreshWeek();
                 },
                 icon: const Icon(Icons.chevron_left, color: Colors.white70),
@@ -296,19 +419,28 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
                 child: Center(
                   child: Text(
                     '${_fmtMonthDay(days.first)} - ${_fmtMonthDay(days.last)}',
-                    style: GoogleFonts.jetBrainsMono(color: Colors.white, fontWeight: FontWeight.w600),
+                    style: GoogleFonts.jetBrainsMono(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
               IconButton(
                 onPressed: () {
-                  setState(() => _weekStart = _weekStart.add(const Duration(days: 7)));
+                  setState(
+                    () => _weekStart = _weekStart.add(const Duration(days: 7)),
+                  );
                   _refreshWeek();
                 },
                 icon: const Icon(Icons.chevron_right, color: Colors.white70),
               ),
               IconButton(
-                onPressed: _refreshWeek,
+                onPressed: () {
+                  _cooldownRetryTimer?.cancel();
+                  context.read<CalendarService>().clearInitCooldown();
+                  _refreshWeek().then((_) => _startPollTimer());
+                },
                 icon: const Icon(Icons.refresh, color: Colors.cyanAccent),
               ),
             ],
@@ -318,8 +450,8 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _error != null
-                  ? _buildError()
-                  : _buildGrid(days),
+              ? _buildError()
+              : _buildGrid(days),
         ),
       ],
     );
@@ -336,7 +468,10 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
             const SizedBox(height: 12),
             Text(
               'Calendar sync unavailable',
-              style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w700),
+              style: GoogleFonts.inter(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 6),
             Text(
@@ -345,7 +480,14 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
               style: GoogleFonts.inter(color: Colors.white54, fontSize: 12),
             ),
             const SizedBox(height: 10),
-            OutlinedButton(onPressed: _refreshWeek, child: const Text('Retry')),
+            OutlinedButton(
+              onPressed: () {
+                _cooldownRetryTimer?.cancel();
+                context.read<CalendarService>().clearInitCooldown();
+                _refreshWeek().then((_) => _startPollTimer());
+              },
+              child: const Text('Retry'),
+            ),
           ],
         ),
       ),
@@ -389,7 +531,9 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
       decoration: BoxDecoration(
         color: const Color(0xFF0B0C10),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-        border: Border(bottom: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
+        border: Border(
+          bottom: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+        ),
       ),
       child: Row(
         children: [
@@ -399,7 +543,10 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
             alignment: Alignment.center,
             child: Text(
               'Time',
-              style: GoogleFonts.jetBrainsMono(color: Colors.white38, fontSize: 11),
+              style: GoogleFonts.jetBrainsMono(
+                color: Colors.white38,
+                fontSize: 11,
+              ),
             ),
           ),
           ...days.map((d) {
@@ -408,18 +555,27 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
               height: 44,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                border: Border(left: BorderSide(color: Colors.white.withValues(alpha: 0.08))),
+                border: Border(
+                  left: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                ),
               ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
                     _weekdayLabel(d),
-                        style: GoogleFonts.inter(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
+                    style: GoogleFonts.inter(
+                      color: Colors.white70,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   Text(
                     '${d.day}/${d.month}',
-                    style: GoogleFonts.jetBrainsMono(color: Colors.white38, fontSize: 10),
+                    style: GoogleFonts.jetBrainsMono(
+                      color: Colors.white38,
+                      fontSize: 10,
+                    ),
                   ),
                 ],
               ),
@@ -470,18 +626,29 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
             children: List.generate(24, (hour) {
               return GestureDetector(
                 onTap: () {
-                  final slotStart = DateTime(day.year, day.month, day.day, hour);
+                  final slotStart = DateTime(
+                    day.year,
+                    day.month,
+                    day.day,
+                    hour,
+                  );
                   _openEventEditor(initialStart: slotStart);
                 },
                 child: Container(
                   height: _hourHeight,
                   decoration: BoxDecoration(
                     border: Border(
-                      left: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
-                      top: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
+                      left: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.08),
+                      ),
+                      top: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.06),
+                      ),
                     ),
                   ),
-                  child: hour == DateTime.now().hour && _isSameDate(day, DateTime.now())
+                  child:
+                      hour == DateTime.now().hour &&
+                          _isSameDate(day, DateTime.now())
                       ? Align(
                           alignment: Alignment.topCenter,
                           child: Container(
@@ -497,9 +664,14 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
           ),
           ...dayEvents.map((event) {
             final startLocal = _displayDateTime(event.start) ?? day;
-            final endLocal = _displayDateTime(event.end) ?? startLocal.add(const Duration(hours: 1));
+            final endLocal =
+                _displayDateTime(event.end) ??
+                startLocal.add(const Duration(hours: 1));
             final minutesFromTop = (startLocal.hour * 60) + startLocal.minute;
-            final durationMinutes = endLocal.difference(startLocal).inMinutes.clamp(15, 24 * 60);
+            final durationMinutes = endLocal
+                .difference(startLocal)
+                .inMinutes
+                .clamp(15, 24 * 60);
 
             final top = (minutesFromTop / 60) * _hourHeight;
             final height = (durationMinutes / 60) * _hourHeight;
@@ -510,13 +682,16 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
               top: top,
               height: height < 28 ? 28 : height,
               child: GestureDetector(
-                onTap: () => _openEventEditor(initialStart: startLocal, event: event),
+                onTap: () =>
+                    _openEventEditor(initialStart: startLocal, event: event),
                 child: Container(
                   padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
                   decoration: BoxDecoration(
                     color: const Color(0xFF2563EB).withValues(alpha: 0.9),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.2),
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

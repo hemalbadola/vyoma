@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:googleapis/calendar/v3.dart' as calendar;
 import '../core/ai_service.dart';
@@ -15,6 +14,9 @@ import '../core/models/timetable.dart';
 import '../core/notification_service.dart';
 import '../core/chronos_service.dart';
 import '../core/memory_service.dart';
+import '../core/friend_service.dart';
+import '../core/accountability_service.dart';
+import '../core/telemetry_service.dart';
 
 
 class ChatSession {
@@ -87,10 +89,36 @@ class _PendingActionPlan {
 }
 
 class WarRoomViewModel extends ChangeNotifier {
+  static const Map<String, List<String>> commandHelp = {
+    '/focus start': [
+      'Start a focused work session',
+      'Usage: /focus start <intent>',
+    ],
+    '/focus stop': [
+      'Stop the active focus session',
+      'Usage: /focus stop',
+    ],
+    '/focus status': [
+      'Show current focus-session state',
+      'Usage: /focus status',
+    ],
+    '/approve': [
+      'Approve and execute pending action plan',
+      'Usage: /approve',
+    ],
+    '/deny': [
+      'Cancel pending action plan',
+      'Usage: /deny',
+    ],
+  };
+
   final CalendarService _calendarService;
   final AIService _aiService;
   final TimetableService _timetableService;
   final NotificationService _notificationService;
+  final FriendService _friendService;
+  final AccountabilityService _accountabilityService;
+  final TelemetryService _telemetryService;
   
   // Intelligence Services
   final DeviceService _deviceService = DeviceService();
@@ -150,10 +178,16 @@ class WarRoomViewModel extends ChangeNotifier {
     required AIService aiService,
     required TimetableService timetableService,
     required NotificationService notificationService,
+    required FriendService friendService,
+    required AccountabilityService accountabilityService,
+    required TelemetryService telemetryService,
   }) : _calendarService = calendarService,
        _aiService = aiService,
        _timetableService = timetableService,
-       _notificationService = notificationService {
+       _notificationService = notificationService,
+       _friendService = friendService,
+       _accountabilityService = accountabilityService,
+       _telemetryService = telemetryService {
     _chronosService = ChronosService(_aiService.memory);
     _notificationService.restorePending(
       onDispatch: (body) {
@@ -555,6 +589,14 @@ class WarRoomViewModel extends ChangeNotifier {
         telemetry.addAll(deviceData);
       } catch (e) { debugPrint("Device Telemetry Error: $e"); }
 
+      // Cross-Device Activity Telemetry
+      try {
+        final crossDeviceMatrix = await _telemetryService.getCrossDeviceMatrix();
+        if (crossDeviceMatrix.isNotEmpty) {
+          telemetry['cross_device_matrix'] = crossDeviceMatrix;
+        }
+      } catch (e) { debugPrint("Cross-device error: $e"); }
+
       try {
         final weatherData = await _weatherService.getWeather();
         telemetry.addAll(weatherData); 
@@ -569,6 +611,17 @@ class WarRoomViewModel extends ChangeNotifier {
         }
       }
       
+      // Fetch Friend Accountability Summary
+      String friendSummary = '[]';
+      try {
+        final friendUids = await _friendService.getAcceptedFriendUids();
+        if (friendUids.isNotEmpty) {
+          friendSummary = await _accountabilityService.buildFriendActivitySummary(friendUids);
+        }
+      } catch (e) {
+        debugPrint("Friend Context Error: $e");
+      }
+
       _isSyncing = false;
       notifyListeners();
 
@@ -588,6 +641,7 @@ class WarRoomViewModel extends ChangeNotifier {
         imageBytes: _selectedImageBytes,
         conversationTimeline: _conversationTimeline(limit: 20),
         temporalContext: null, // sendMessage accepts String? — temporal context is built inside AIService
+        friendActivitySummary: friendSummary,
         onToken: (token) {
           _streamingText += token;
           notifyListeners(); // triggers live ChatSheet rebuild
@@ -1255,13 +1309,12 @@ class WarRoomViewModel extends ChangeNotifier {
   _UserIntent _inferUserIntent(String text) {
     final lower = text.toLowerCase();
     final schedulingConfirmation = _isSchedulingConfirmation(lower);
-    final hasImage = _selectedImageBytes != null;
 
     final scheduling =
-        RegExp(r'\b(schedul|plan|block|book|add|create|calendar|slot|class|classes|timetable|lecture|extract|set)').hasMatch(lower) ||
+        RegExp(r'\b(schedule|plan|block|book|add|create|calendar|slot|class|classes|timetable)\b').hasMatch(lower) ||
         schedulingConfirmation;
     final reminder = RegExp(r'\b(remind|reminder|notify|nudge)\b').hasMatch(lower);
-    final timetable = RegExp(r'\b(timetable|class list|weekly schedule|classes|class|lecture|college|extract|blocks)\b').hasMatch(lower) || hasImage;
+    final timetable = RegExp(r'\b(timetable|class list|weekly schedule|classes|class)\b').hasMatch(lower);
     final eventEdit = RegExp(r'\b(move|reschedule|delete|cancel event|change event|shift|edit)\b').hasMatch(lower);
 
     return _UserIntent(
@@ -1315,7 +1368,7 @@ class WarRoomViewModel extends ChangeNotifier {
       case 'move':
         return (action.summary?.trim().isNotEmpty ?? false) && (action.startTime?.trim().isNotEmpty ?? false);
       case 'delete':
-        return true; // Empty summary can imply 'delete all'
+        return action.summary?.trim().isNotEmpty ?? false;
       case 'update_timetable':
         final hasSlots = action.slots != null && action.slots!.isNotEmpty;
         final hasTargetedEdit = (action.summary?.trim().isNotEmpty ?? false) && (action.startTime?.trim().isNotEmpty ?? false);
@@ -1459,18 +1512,6 @@ class WarRoomViewModel extends ChangeNotifier {
       }
     }
   }
-
-  // Available slash commands for UI autocomplete: {command: [description, paramHint]}
-  static const Map<String, List<String>> commandHelp = {
-    '/focus start': ['Start a distraction-free focus session', '<intent>'],
-    '/focus stop': ['End the current focus session', ''],
-    '/focus status': ['Check current focus session runtime', ''],
-    '/approve': ['Approve pending AI action plan', ''],
-    '/deny': ['Deny pending AI action plan', ''],
-    '/debug reset': ['[DEBUG] Wipe all data and restart from onboarding', ''],
-  };
-
-  int get todaysFocusMinutes => _currentMetrics.focusMinutes;
 
   void _updateMetrics({int focusDelta = 0, int distractionDelta = 0, int taskDelta = 0}) {
     _currentMetrics = ProductivityMetrics(
@@ -1759,15 +1800,6 @@ class WarRoomViewModel extends ChangeNotifier {
       return true;
     }
 
-    if (cmd == '/debug reset') {
-      if (!kDebugMode) {
-        _addSystemStatus("Debug commands are disabled in release mode.", persist: false);
-        return true;
-      }
-      _performFactoryReset();
-      return true;
-    }
-
     if (cmd != '/approve' && cmd != '/deny') return false;
 
     _addMessage("USER", text);
@@ -1818,14 +1850,8 @@ class WarRoomViewModel extends ChangeNotifier {
     String? targetEventId;
     calendar.Event? targetEvent;
     
-     // Fuzzy Search for Target ID based on Summary
-     final isBulkDelete = action.type == 'delete' && 
-         (action.summary == null || 
-          action.summary!.toLowerCase().contains('all') || 
-          action.summary!.toLowerCase().contains('timetable') || 
-          action.summary!.toLowerCase().contains('schedule'));
-
-     if (!isBulkDelete && (action.type == 'delete' || action.type == 'move' || (action.type == 'update_timetable' && action.summary != null && action.startTime != null))) {
+    // Fuzzy Search for Target ID based on Summary
+     if (action.type == 'delete' || action.type == 'move' || (action.type == 'update_timetable' && action.summary != null && action.startTime != null)) {
        if (action.summary != null) {
           try {
             final target = events.firstWhere((e) => 
@@ -1981,29 +2007,7 @@ class WarRoomViewModel extends ChangeNotifier {
        }
     }
     else if (action.type == 'delete') {
-       final isBulkDelete = action.summary == null || 
-          action.summary!.toLowerCase().contains('all') || 
-          action.summary!.toLowerCase().contains('timetable') || 
-          action.summary!.toLowerCase().contains('schedule');
-
-       if (isBulkDelete) {
-         try {
-           final backup = List<TimetableSlot>.from(_timetableService.slots);
-           await _timetableService.updateTimetable([]);
-           _addSystemStatus("Cleared all timetable schedules.", persist: false);
-           
-           if (backup.isNotEmpty) {
-             _undoStack.add(
-               _UndoEntry(
-                 label: "CLEAR TIMETABLE",
-                 undo: () => _timetableService.updateTimetable(backup),
-               ),
-             );
-           }
-         } catch (e) {
-           _addSystemError("Timetable clear", e);
-         }
-       } else if (targetEventId != null) {
+       if (targetEventId != null) {
          try {
            final backup = targetEvent;
            await _calendarService.deleteEvent(targetEventId);
@@ -2087,48 +2091,6 @@ class WarRoomViewModel extends ChangeNotifier {
         );
         _addSystemStatus("Proactive message scheduled for ${at.toLocal()}.", persist: false);
       }
-    }
-  }
-
-  // --- DEBUG: FACTORY RESET ---
-  Future<void> _performFactoryReset() async {
-    _addSystemStatus("⚠️ FACTORY RESET: Wiping all data...", persist: false);
-    notifyListeners();
-
-    try {
-      // 1. Clear SharedPreferences (onboarding flag, timetable, synced IDs, etc.)
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.clear();
-
-      // 2. Delete productivity metrics file
-      try {
-        final metricsFile = await _getMetricsFile();
-        if (await metricsFile.exists()) {
-          await metricsFile.delete();
-        }
-      } catch (_) {}
-
-      // 3. Wipe timetable in-memory
-      await _timetableService.updateTimetable([]);
-
-      // 4. Clear in-memory state
-      _messages.clear();
-      _currentMetrics = ProductivityMetrics(focusMinutes: 0, distractionCount: 0, tasksCompleted: 0);
-      _focusSessionActive = false;
-      _focusSessionIntent = null;
-      _focusSessionStartedAt = null;
-      _pendingActionPlan = null;
-      _undoStack.clear();
-
-      _addSystemStatus("✅ All data wiped. Restarting app...", persist: false);
-      notifyListeners();
-
-      // 5. Force restart — exit the process so Flutter re-launches from main()
-      await Future.delayed(const Duration(milliseconds: 500));
-      exit(0);
-    } catch (e) {
-      _addSystemStatus("Reset failed: $e", persist: false);
-      notifyListeners();
     }
   }
 }

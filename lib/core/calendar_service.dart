@@ -1,18 +1,101 @@
+import 'dart:async';
 import 'package:googleapis/calendar/v3.dart';
 import 'package:flutter/foundation.dart';
 import 'auth_manager.dart';
+
+class CalendarAuthCooldownException implements Exception {
+  final Duration retryAfter;
+
+  const CalendarAuthCooldownException(this.retryAfter);
+
+  @override
+  String toString() {
+    final mins = retryAfter.inMinutes;
+    final secs = retryAfter.inSeconds % 60;
+    if (mins > 0) {
+      return secs > 0
+          ? 'Calendar auth is cooling down. Retry in ${mins}m ${secs}s.'
+          : 'Calendar auth is cooling down. Retry in ${mins}m.';
+    }
+    return 'Calendar auth is cooling down. Retry in a few seconds.';
+  }
+}
 
 class CalendarService {
   final AuthManager _authManager;
   CalendarApi? _calendarApi;
   String? _calendarTimeZone;
 
+  // Prevent concurrent initialization (race condition guard).
+  Completer<void>? _initInFlight;
+
+  // Cooldown: don't retry init if it recently failed (prevents popup spam).
+  DateTime? _lastInitFailure;
+  static const _initCooldown = Duration(minutes: 5);
+
+  Duration? get initCooldownRemaining {
+    final failedAt = _lastInitFailure;
+    if (failedAt == null) return null;
+
+    final elapsed = DateTime.now().difference(failedAt);
+    if (elapsed >= _initCooldown) return null;
+    return _initCooldown - elapsed;
+  }
+
+  bool get _isInCooldown => initCooldownRemaining != null;
+
   CalendarService(this._authManager);
 
   /// Initializes the Calendar API client if not already done.
+  /// Has cooldown + concurrency guard to prevent sign-in popup spam.
   Future<void> _ensureInitialized() async {
     if (_calendarApi != null) return;
-    _calendarApi = await _authManager.getCalendarApi();
+
+    // Don't retry if we recently failed.
+    if (_isInCooldown) {
+      throw CalendarAuthCooldownException(
+        initCooldownRemaining ?? _initCooldown,
+      );
+    }
+
+    // If init is already in flight, wait for it instead of starting another.
+    if (_initInFlight != null) {
+      return _initInFlight!.future;
+    }
+
+    final completer = Completer<void>();
+    _initInFlight = completer;
+
+    try {
+      _calendarApi = await _authManager.getCalendarApi();
+      _lastInitFailure = null; // Clear cooldown on success.
+      completer.complete();
+    } on AuthConfigurationException catch (e) {
+      completer.completeError(e);
+      rethrow;
+    } on AuthCooldownException catch (e) {
+      final cooldown = CalendarAuthCooldownException(e.retryAfter);
+      completer.completeError(cooldown);
+      throw cooldown;
+    } catch (e) {
+      _lastInitFailure = DateTime.now();
+      debugPrint('CalendarService: init failed, cooldown active for 5 min: $e');
+      completer.completeError(e);
+      rethrow;
+    } finally {
+      _initInFlight = null;
+    }
+  }
+
+  /// Invalidate cached client so next call re-authenticates.
+  void _invalidateClient() {
+    _calendarApi = null;
+  }
+
+  /// Allows an explicit user action (Retry button) to attempt auth immediately.
+  void clearInitCooldown() {
+    _lastInitFailure = null;
+    _authManager.clearAuthCooldown();
   }
 
   Future<String?> _getCalendarTimeZone() async {
@@ -35,7 +118,6 @@ class CalendarService {
     final offset = DateTime.now().timeZoneOffset;
     final minutes = offset.inMinutes;
 
-    // Targeted fallback map for common offsets; includes IST.
     if (minutes == 330) return 'Asia/Kolkata';
     if (minutes == 0) return 'UTC';
     if (minutes == 60) return 'Europe/Berlin';
@@ -52,8 +134,6 @@ class CalendarService {
   }
 
   /// Fetches the list of upcoming events from the user's primary calendar.
-  /// 
-  /// [maxResults] defaults to 10.
   Future<List<Event>> syncEvents({int maxResults = 10}) async {
     await _ensureInitialized();
     try {
@@ -65,12 +145,30 @@ class CalendarService {
         singleEvents: true,
         orderBy: 'startTime',
       );
-      // Filter out all-day events (where dateTime is null)
       return (events.items ?? [])
           .where((e) => e.start?.dateTime != null)
           .toList();
+    } on DetailedApiRequestError catch (e) {
+      if (e.status == 401 || e.status == 403) {
+        debugPrint(
+          'CalendarService: 401/403 — invalidating client for re-auth',
+        );
+        _invalidateClient();
+        await _authManager.signOut();
+      }
+      rethrow;
     } catch (e) {
-      // Allow the error to propagate so the UI can handle it (e.g., trigger auth flow recovery)
+      final str = e.toString().toLowerCase();
+      if (str.contains('unauthorized') ||
+          str.contains('invalid_grant') ||
+          str.contains('refresh') ||
+          str.contains('invalid_client')) {
+        debugPrint(
+          'CalendarService: Auth token refresh failed. Forcing re-auth.',
+        );
+        _invalidateClient();
+        await _authManager.signOut();
+      }
       rethrow;
     }
   }
@@ -95,13 +193,32 @@ class CalendarService {
       return (events.items ?? [])
           .where((e) => e.start?.dateTime != null)
           .toList();
+    } on DetailedApiRequestError catch (e) {
+      if (e.status == 401 || e.status == 403) {
+        debugPrint(
+          'CalendarService: 401/403 — invalidating client for re-auth',
+        );
+        _invalidateClient();
+        await _authManager.signOut();
+      }
+      rethrow;
     } catch (e) {
+      final str = e.toString().toLowerCase();
+      if (str.contains('unauthorized') ||
+          str.contains('invalid_grant') ||
+          str.contains('refresh') ||
+          str.contains('invalid_client')) {
+        debugPrint(
+          'CalendarService: Auth token refresh failed. Forcing re-auth.',
+        );
+        _invalidateClient();
+        await _authManager.signOut();
+      }
       rethrow;
     }
   }
 
   /// Adds a new event to the primary calendar.
-  /// [recurrence] should be a list of RRULE strings, e.g. ["RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR"]
   Future<Event> addEvent(Event event, {List<String>? recurrence}) async {
     await _ensureInitialized();
 
@@ -127,7 +244,6 @@ class CalendarService {
   }
 
   /// Preserve local wall-clock times when writing to Calendar.
-  /// This avoids hour-offset drift on refresh in timezone-aware regions.
   Future<void> _normalizeEventDateTimes(Event event) async {
     final tz = await _getCalendarTimeZone();
 
@@ -151,7 +267,6 @@ class CalendarService {
     final local = wallClock.isUtc ? wallClock.toLocal() : wallClock;
     final offsetMinutes = _offsetMinutesForTimeZone(timeZone);
 
-    // Build wall-clock timestamp then translate into the target timezone instant.
     return DateTime.utc(
       local.year,
       local.month,
@@ -201,11 +316,12 @@ class CalendarService {
       final events = await _calendarApi!.events.list(
         'primary',
         timeMin: now,
-        maxResults: 100, // Reasonable max for clearing a semester's timetable events
+        maxResults: 100,
       );
 
       final timetableEvents = (events.items ?? []).where((e) {
-        return e.description != null && e.description!.contains('[Vyoma-Timetable]');
+        return e.description != null &&
+            e.description!.contains('[Vyoma-Timetable]');
       }).toList();
 
       for (var event in timetableEvents) {

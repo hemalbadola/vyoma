@@ -1,52 +1,28 @@
-# Miscellaneous
-*.class
-*.log
-*.pyc
-*.swp
-.DS_Store
-.atom/
-.build/
-.buildlog/
-.history
-.svn/
-.swiftpm/
-migrate_working_dir/
+node_modules/
 
-# IntelliJ related
-*.iml
-*.ipr
-*.iws
-.idea/
-
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
-
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
-.dart_tool/
-.flutter-plugins-dependencies
-.pub-cache/
-.pub/
-/build/
-/coverage/
-
-# Symbolication related
-app.*.symbols
-
-# Obfuscation related
-app.*.map.json
-
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
-
-lib/core/secrets.dart
-
-# Test scripts with hardcoded API keys
-test_gemini_keys.py
-test_keys.py
+# Secrets & Scripts
+.env
+.env.*
+*.json
+!package.json
+!tsconfig.json
+!firestore.rules
+!firebase.json
+!ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json
+!macos/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json
+!web/manifest.json
+*_decoded.txt
+all_gemini_keys.txt
+test_*.py
+decode_*.py
 list_models_py.py
+test_*.dart
+debug_err.dart
+test_out.json
+*.iml
+
+build/
+.dart_tool/
+.idea/
+.DS_Store
+.flutter-plugins-dependencies

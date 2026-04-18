@@ -9,45 +9,15 @@ Usage:
 import os
 import sys
 import json
-import re
-from pathlib import Path
 import requests
 
 BASE_URL = "https://api.supermemory.ai/v3"
 PROJECT = os.getenv("VYOMA_SUPERMEMORY_PROJECT", "vyoma").strip()
 
-
-def _decode(encoded, seed):
-    out = []
-    for i, b in enumerate(encoded):
-        out.append(b ^ ((seed + i * 29 + (i >> 1)) & 0xFF))
-    return bytes(out).decode("utf-8", errors="ignore")
-
-
-def _load_fallback_key_from_secrets():
-    secrets_path = Path(__file__).parent / "lib" / "core" / "secrets.dart"
-    if not secrets_path.exists():
-        return ""
-
-    text = secrets_path.read_text(encoding="utf-8")
-
-    seed_match = re.search(r"_supermemorySeed\s*=\s*(\d+)\s*;", text)
-    data_match = re.search(r"_supermemoryData\s*=\s*\[(.*?)\]\s*;", text, re.S)
-    if not seed_match or not data_match:
-        return ""
-
-    seed = int(seed_match.group(1))
-    encoded = [int(n) for n in re.findall(r"\d+", data_match.group(1))]
-    if not encoded:
-        return ""
-
-    return _decode(encoded, seed).strip()
-
-
-API_KEY = os.getenv("VYOMA_SUPERMEMORY_API_KEY", "").strip() or _load_fallback_key_from_secrets()
+API_KEY = os.getenv("VYOMA_SUPERMEMORY_API_KEY", "").strip()
 
 if not API_KEY:
-    raise SystemExit("Missing Supermemory API key (env and fallback decode both empty)")
+    raise SystemExit("Missing Supermemory API key in VYOMA_SUPERMEMORY_API_KEY")
 
 headers = {
     "Authorization": f"Bearer {API_KEY}",

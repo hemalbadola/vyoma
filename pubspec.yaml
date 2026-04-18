@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.11.0+6
 
 environment:
   sdk: ^3.10.3
@@ -34,6 +34,14 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
+  firebase_core: any
+  firebase_auth: any
+  cloud_firestore: any
+  firebase_analytics: any
+  qr_flutter: any
+  mobile_scanner: any
+  share_plus: any
+  app_links: any
   googleapis: ^15.0.0
   google_sign_in: ^6.2.1
   googleapis_auth: ^2.0.0
@@ -57,6 +65,8 @@ dependencies:
   flutter_svg: ^2.2.0
   desktop_drop: ^0.7.0
   cross_file: ^0.3.5+2
+  flutter_dotenv: ^6.0.0
+  cloud_functions: ^6.2.0
 
 dev_dependencies:
   flutter_test:
@@ -68,6 +78,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -86,6 +97,7 @@ flutter:
     - vyoma-icon-512.svg
     - vyoma-favicon-32.svg
     - vyoma-social-pfp.svg
+    - .env
     - vyoma-logo-full.svg
 
   # An image asset can refer to one or more resolution-specific "variants", see
@@ -113,3 +125,17 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "vyoma-icon-512.png"
+  min_sdk_android: 21
+  web:
+    generate: true
+    image_path: "vyoma-icon-512.png"
+    background_color: "#0F172A"
+    theme_color: "#0F172A"
+  macos:
+    generate: true
+    image_path: "vyoma-icon-512.png"

@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class PermissionManager {
 
@@ -19,11 +20,16 @@ class PermissionManager {
   static Future<void> _requestMobilePermissions() async {
     // Only reaches here on Android/iOS
     try {
-      // We use dynamic invocation via the channel directly to avoid
-      // compile-time dependency on permission_handler on desktop.
-      // For now this is effectively a no-op stub on desktop.
+      // Import is not needed if we use the channel but we have 'permission_handler' in pubspec.
+      // We will request core permissions: Notifications and Alarms.
+      final statuses = await [
+        Permission.notification,
+        Permission.scheduleExactAlarm,
+      ].request();
+
+      debugPrint('Mobile Permission Statuses: $statuses');
     } catch (e) {
-      debugPrint('Permission request skipped: $e');
+      debugPrint('Permission request failed or skipped: $e');
     }
   }
 
@@ -34,6 +40,8 @@ class PermissionManager {
         defaultTargetPlatform == TargetPlatform.linux) {
       return true; // Assume granted on desktop — handled via OS settings
     }
-    return false;
+    
+    final status = await Permission.notification.status;
+    return status.isGranted;
   }
 }

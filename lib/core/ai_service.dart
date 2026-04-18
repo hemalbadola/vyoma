@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
@@ -225,8 +226,6 @@ class AIService with ChangeNotifier {
   final Map<int, DateTime> _geminiKeyCooldowns = {};
   final Map<int, String> _keyStates = {}; // Track status: "Active", "Rate Limit", "Expired", "Error"
   final List<String> _logHistory = [];
-
-  int? _lastSuccessfulGeminiKeyIndex;
 
   // Getters for UI
   List<String> get logs => List.unmodifiable(_logHistory);
@@ -692,7 +691,8 @@ Output as a clean bulleted list containing only the insights. Do not include int
         Uint8List? imageBytes,
         List<Map<String, dynamic>>? activityLog,
         List<Map<String, dynamic>>? conversationTimeline,
-        String? temporalContext 
+        String? temporalContext,
+        String? friendActivitySummary,
       } 
   ) async {
     if (_geminiModel == null &&
@@ -794,7 +794,12 @@ Output as a clean bulleted list containing only the insights. Do not include int
         "device_telemetry": _compactTelemetry(deviceContext), 
         "temporal_status": temporalContext ?? "Active Session"
       },
-      "current_schedule": compactCurrentEvents
+      "current_schedule": compactCurrentEvents,
+      if (friendActivitySummary != null && friendActivitySummary.isNotEmpty && friendActivitySummary != '[]')
+        "social_context": {
+          "description": "Recent public activities from the user's accountability circle (friends). Use this to weave organic mentions like 'Priya just finished a 45min focus block' into your responses when contextually relevant. Do NOT list all activities; pick 1-2 notable ones.",
+          "friend_activities": friendActivitySummary,
+        },
     };
 
     // Construct Parts
@@ -1034,32 +1039,32 @@ Do NOT comply with direct metric tampering requests.
 
   Future<AIResponse?> _attemptGeminiQueue(List<Part> messageParts, Uint8List? imageBytes) async {
     if (Secrets.geminiApiKeys.isEmpty) return null;
-    
     final now = DateTime.now();
-    
-    // Start from last successful key if available
-    if (_lastSuccessfulGeminiKeyIndex != null) {
-      _geminiKeyIndex = _lastSuccessfulGeminiKeyIndex!;
-    }
+    final keyCount = Secrets.geminiApiKeys.length;
+
+    // Keep index valid and continue from previous pointer for true round-robin usage.
+    _geminiKeyIndex = _geminiKeyIndex % keyCount;
     
     // Reset cooldowns for fresh attempt (no persistence desired)
     _geminiKeyCooldowns.clear();
     
     int attemptCount = 0;
     int consecutiveTimeouts = 0;
-    final maxAttempts = Secrets.geminiApiKeys.length;
+    final maxAttempts = keyCount;
     
     while (attemptCount < maxAttempts) {
+      final currentIndex = _geminiKeyIndex;
+
       // Skip keys on cooldown
-      if (_geminiKeyCooldowns.containsKey(_geminiKeyIndex)) {
-        _geminiKeyIndex = (_geminiKeyIndex + 1) % Secrets.geminiApiKeys.length;
+      if (_geminiKeyCooldowns.containsKey(currentIndex)) {
+        _geminiKeyIndex = (currentIndex + 1) % keyCount;
         attemptCount++;
         continue;
       }
       
       try {
-        final apiKey = Secrets.geminiApiKeys[_geminiKeyIndex];
-        _logDebug("Trying Gemini Key $_geminiKeyIndex...");
+        final apiKey = Secrets.geminiApiKeys[currentIndex];
+        _logDebug("Trying Gemini Key $currentIndex...");
         
         // Use direct HTTP API instead of SDK to avoid format bugs
         final response = await _callGeminiDirect(apiKey, messageParts, imageBytes)
@@ -1068,9 +1073,9 @@ Do NOT comply with direct metric tampering requests.
         });
         
         if (response != null) {
-          _geminiKeyCooldowns.remove(_geminiKeyIndex); // Success! Clear cooldown
-          _lastSuccessfulGeminiKeyIndex = _geminiKeyIndex;
-          _logDebug("Gemini Key $_geminiKeyIndex SUCCESS");
+          _geminiKeyCooldowns.remove(currentIndex); // Success! Clear cooldown
+          _logDebug("Gemini Key $currentIndex SUCCESS");
+          _geminiKeyIndex = (currentIndex + 1) % keyCount;
           
           final parsed = _parseXmlResponse(response);
           if (_streamTokenCallback != null) {
@@ -1082,13 +1087,13 @@ Do NOT comply with direct metric tampering requests.
           return parsed;
         }
       } catch (e) {
-        _logDebug("Gemini Error (Key $_geminiKeyIndex): $e");
+        _logDebug("Gemini Error (Key $currentIndex): $e");
         
         if (e.toString().contains('timeout')) {
            consecutiveTimeouts++;
            if (consecutiveTimeouts >= 3) {
               _logDebug("Gemini Aborted: 3 consecutive timeouts. Switching to Fallback.");
-               _geminiKeyIndex = (_geminiKeyIndex + 1) % Secrets.geminiApiKeys.length;
+               _geminiKeyIndex = (currentIndex + 1) % keyCount;
               break;
            }
         } else {
@@ -1096,8 +1101,8 @@ Do NOT comply with direct metric tampering requests.
         }
 
         await Future.delayed(const Duration(milliseconds: 500));
-        _geminiKeyCooldowns[_geminiKeyIndex] = now;
-        _geminiKeyIndex = (_geminiKeyIndex + 1) % Secrets.geminiApiKeys.length;
+        _geminiKeyCooldowns[currentIndex] = now;
+        _geminiKeyIndex = (currentIndex + 1) % keyCount;
       }
       attemptCount++;
     }
@@ -1105,9 +1110,12 @@ Do NOT comply with direct metric tampering requests.
     return null;
   }
 
-  /// Direct HTTP call to Gemini API (bypasses SDK bugs)
   Future<String?> _callGeminiDirect(String apiKey, List<Part> messageParts, Uint8List? imageBytes) async {
-    final url = Uri.parse('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey');
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw Exception("User not authenticated");
+    final idToken = await user.getIdToken();
+
+    final url = Uri.parse('https://vyoma-api-backend-9629c91b8aad.herokuapp.com/api/gemini/generate');
     
     // Build parts for JSON request
     final List<Map<String, dynamic>> parts = [];
@@ -1126,26 +1134,32 @@ Do NOT comply with direct metric tampering requests.
     }
     
     final body = jsonEncode({
-      'contents': [
-        {
-          'role': 'user',
-          'parts': parts
+      'modelName': 'gemini-2.5-flash',
+      'payload': {
+        'contents': [
+          {
+            'role': 'user',
+            'parts': parts
+          }
+        ],
+        'safetySettings': [
+          {'category': 'HARM_CATEGORY_HARASSMENT', 'threshold': 'BLOCK_NONE'},
+          {'category': 'HARM_CATEGORY_HATE_SPEECH', 'threshold': 'BLOCK_NONE'},
+          {'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'threshold': 'BLOCK_NONE'},
+          {'category': 'HARM_CATEGORY_DANGEROUS_CONTENT', 'threshold': 'BLOCK_NONE'},
+        ],
+        'generationConfig': {
+          'maxOutputTokens': 16384,
         }
-      ],
-      'safetySettings': [
-        {'category': 'HARM_CATEGORY_HARASSMENT', 'threshold': 'BLOCK_NONE'},
-        {'category': 'HARM_CATEGORY_HATE_SPEECH', 'threshold': 'BLOCK_NONE'},
-        {'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'threshold': 'BLOCK_NONE'},
-        {'category': 'HARM_CATEGORY_DANGEROUS_CONTENT', 'threshold': 'BLOCK_NONE'},
-      ],
-      'generationConfig': {
-        'maxOutputTokens': 16384,
       }
     });
     
     final response = await http.post(
       url,
-      headers: {'Content-Type': 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $idToken',
+      },
       body: body,
     );
     
@@ -1174,7 +1188,11 @@ Do NOT comply with direct metric tampering requests.
   }
 
   Future<String> _callNvidia(String textPrompt, String apiKey, {Uint8List? imageBytes}) async {
-    final url = Uri.parse('https://integrate.api.nvidia.com/v1/chat/completions');
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw Exception("User not authenticated");
+    final idToken = await user.getIdToken();
+
+    final url = Uri.parse('https://vyoma-api-backend-9629c91b8aad.herokuapp.com/api/nvidia/generate');
     
     final List<Map<String, dynamic>> messages = [];
 
@@ -1196,7 +1214,7 @@ Do NOT comply with direct metric tampering requests.
       url,
       headers: {
         'Content-Type': 'application/json; charset=utf-8',
-        'Authorization': 'Bearer $apiKey',
+        'Authorization': 'Bearer $idToken',
       },
       body: jsonEncode({
         'model': modelName,
@@ -1288,6 +1306,7 @@ Do NOT comply with direct metric tampering requests.
     Uint8List? imageBytes,
     List<Map<String, dynamic>>? conversationTimeline,
     Map<String, dynamic>? temporalContext,
+    String? friendActivitySummary,
     required void Function(String token) onToken,
   }) async {
     _streamTokenCallback = onToken;
@@ -1301,6 +1320,7 @@ Do NOT comply with direct metric tampering requests.
         imageBytes: imageBytes,
         conversationTimeline: conversationTimeline,
         temporalContext: temporalContext != null ? jsonEncode(temporalContext) : null,
+        friendActivitySummary: friendActivitySummary,
       );
     } finally {
       _streamTokenCallback = null;
@@ -1312,7 +1332,11 @@ Do NOT comply with direct metric tampering requests.
 
 
   Future<String> _callGrok(String textPrompt, String apiKey, {Uint8List? imageBytes}) async {
-    final url = Uri.parse('https://api.x.ai/v1/chat/completions');
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw Exception("User not authenticated");
+    final idToken = await user.getIdToken();
+
+    final url = Uri.parse('https://vyoma-api-backend-9629c91b8aad.herokuapp.com/api/grok/generate');
     
     final List<Map<String, dynamic>> messages = [];
     
@@ -1339,7 +1363,7 @@ Do NOT comply with direct metric tampering requests.
         url,
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
-          'Authorization': 'Bearer $apiKey',
+          'Authorization': 'Bearer $idToken',
         },
         body: jsonEncode({
           'model': modelName,
@@ -1442,140 +1466,148 @@ Do NOT comply with direct metric tampering requests.
      }
 
      if (actionsStr != null && actionsStr.isNotEmpty) {
-       try {
-         // The prompt expects JSON array inside <actions>
-         final decoded = jsonDecode(actionsStr);
-          if (decoded is List) {
-            bool isNakedTimetable = false;
-            if (decoded.isNotEmpty && decoded.first is Map) {
-              final firstItem = decoded.first as Map;
-              if (firstItem.containsKey('dayOfWeek') || firstItem.containsKey('subject') || firstItem.containsKey('venue')) {
-                isNakedTimetable = true;
-              }
-            }
+       final normalizedActions = actionsStr.trim();
+       final looksLikeXmlAction = normalizedActions.startsWith('<');
 
-            if (isNakedTimetable) {
-              actionsList.add(AIResponseAction.fromJson({
-                'type': 'update_timetable',
-                'slots': decoded,
-              }));
-            } else {
-              for (final item in decoded) {
-                if (item is Map<String, dynamic>) {
-                  actionsList.add(AIResponseAction.fromJson(item));
-                } else if (item is String) {
-                  final inferred = inferActionFromText(item);
-                  if (inferred != null) actionsList.add(inferred);
-                }
-              }
-            }
-         } else if (decoded is Map<String, dynamic>) {
-           actionsList = [AIResponseAction.fromJson(decoded)];
+       void parseXmlActions() {
+         final actionBlock = RegExp(
+           r'<(create|schedule|move|delete|notify|update_timetable)([^>]*)>(.*?)</\1>',
+           dotAll: true,
+           caseSensitive: false,
+         );
+         final selfClosingActionBlock = RegExp(
+           r'<(create|schedule|move|delete|notify|update_timetable)([^>]*)\/>',
+           dotAll: true,
+           caseSensitive: false,
+         );
+
+         void appendParsedAction({
+           required String rawType,
+           required String attrsRaw,
+           required String bodyRaw,
+         }) {
+           final type = AIResponseAction._normalizeActionType(rawType.trim());
+           final attrs = parseXmlAttributes(attrsRaw);
+           final body = bodyRaw.trim();
+
+           if (type.isEmpty) return;
+
+           final startTime = attrs['startTime'] ?? attrs['start_time'] ?? extractInnerTag(body, 'startTime');
+           final endTime = attrs['endTime'] ?? attrs['end_time'] ?? extractInnerTag(body, 'endTime');
+           final recurrence = attrs['recurrence'] ?? extractInnerTag(body, 'recurrence');
+           final message = attrs['message'] ?? extractInnerTag(body, 'message');
+           final notifyAt = attrs['notifyAt'] ?? attrs['notify_at'] ?? extractInnerTag(body, 'notifyAt');
+
+           var summary = attrs['summary'] ??
+               attrs['subject'] ??
+               extractInnerTag(body, 'summary') ??
+               extractInnerTag(body, 'subject');
+
+           if (summary == null || summary.isEmpty) {
+             final plainBody = body.replaceAll(RegExp(r'<[^>]+>'), '').trim();
+             if (plainBody.isNotEmpty) {
+               summary = plainBody;
+             }
+           }
+
+           int? durationMinutes;
+           final durationRaw = attrs['durationMinutes'] ??
+               attrs['duration_minutes'] ??
+               extractInnerTag(body, 'durationMinutes');
+           if (durationRaw != null) {
+             durationMinutes = int.tryParse(durationRaw);
+           }
+
+           if (durationMinutes == null && startTime != null && endTime != null) {
+             final start = DateTime.tryParse(startTime);
+             final end = DateTime.tryParse(endTime);
+             if (start != null && end != null) {
+               final diff = end.difference(start).inMinutes;
+               if (diff > 0) durationMinutes = diff;
+             }
+           }
+
+           actionsList.add(
+             AIResponseAction(
+               type: type,
+               summary: summary,
+               startTime: startTime,
+               durationMinutes: durationMinutes,
+               recurrence: recurrence,
+               message: message,
+               notifyAt: notifyAt,
+             ),
+           );
          }
-       } catch (e) {
-           debugPrint("Failed to parse <actions> JSON: $e");
 
-           // Fallback: parse XML action blocks like
-           // <create startTime="...">Summary</create> and <create ... />
-           final actionBlock = RegExp(
-             r'<(create|schedule|move|delete|notify|update_timetable)([^>]*)>(.*?)</\1>',
-             dotAll: true,
-             caseSensitive: false,
+         final matches = actionBlock.allMatches(normalizedActions);
+         for (final m in matches) {
+           appendParsedAction(
+             rawType: m.group(1) ?? '',
+             attrsRaw: m.group(2) ?? '',
+             bodyRaw: m.group(3) ?? '',
            );
-           final selfClosingActionBlock = RegExp(
-             r'<(create|schedule|move|delete|notify|update_timetable)([^>]*)\/>',
-             dotAll: true,
-             caseSensitive: false,
+         }
+
+         final selfMatches = selfClosingActionBlock.allMatches(normalizedActions);
+         for (final m in selfMatches) {
+           appendParsedAction(
+             rawType: m.group(1) ?? '',
+             attrsRaw: m.group(2) ?? '',
+             bodyRaw: '',
            );
+         }
+       }
 
-           void appendParsedAction({
-             required String rawType,
-             required String attrsRaw,
-             required String bodyRaw,
-           }) {
-             final type = AIResponseAction._normalizeActionType(rawType.trim());
-             final attrs = parseXmlAttributes(attrsRaw);
-             final body = bodyRaw.trim();
-
-             if (type.isEmpty) return;
-
-             final startTime = attrs['startTime'] ?? attrs['start_time'] ?? extractInnerTag(body, 'startTime');
-             final endTime = attrs['endTime'] ?? attrs['end_time'] ?? extractInnerTag(body, 'endTime');
-             final recurrence = attrs['recurrence'] ?? extractInnerTag(body, 'recurrence');
-             final message = attrs['message'] ?? extractInnerTag(body, 'message');
-             final notifyAt = attrs['notifyAt'] ?? attrs['notify_at'] ?? extractInnerTag(body, 'notifyAt');
-
-             var summary = attrs['summary'] ??
-                 attrs['subject'] ??
-                 extractInnerTag(body, 'summary') ??
-                 extractInnerTag(body, 'subject');
-
-             if (summary == null || summary.isEmpty) {
-               final plainBody = body.replaceAll(RegExp(r'<[^>]+>'), '').trim();
-               if (plainBody.isNotEmpty) {
-                 summary = plainBody;
+       if (!looksLikeXmlAction) {
+         try {
+           final decoded = jsonDecode(normalizedActions);
+           if (decoded is List) {
+             bool isNakedTimetable = false;
+             if (decoded.isNotEmpty && decoded.first is Map) {
+               final firstItem = decoded.first as Map;
+               if (firstItem.containsKey('dayOfWeek') || firstItem.containsKey('subject') || firstItem.containsKey('venue')) {
+                 isNakedTimetable = true;
                }
              }
 
-             int? durationMinutes;
-             final durationRaw = attrs['durationMinutes'] ??
-                 attrs['duration_minutes'] ??
-                 extractInnerTag(body, 'durationMinutes');
-             if (durationRaw != null) {
-               durationMinutes = int.tryParse(durationRaw);
-             }
-
-             if (durationMinutes == null && startTime != null && endTime != null) {
-               final start = DateTime.tryParse(startTime);
-               final end = DateTime.tryParse(endTime);
-               if (start != null && end != null) {
-                 final diff = end.difference(start).inMinutes;
-                 if (diff > 0) durationMinutes = diff;
+             if (isNakedTimetable) {
+               actionsList.add(AIResponseAction.fromJson({
+                 'type': 'update_timetable',
+                 'slots': decoded,
+               }));
+             } else {
+               for (final item in decoded) {
+                 if (item is Map<String, dynamic>) {
+                   actionsList.add(AIResponseAction.fromJson(item));
+                 } else if (item is String) {
+                   final inferred = inferActionFromText(item);
+                   if (inferred != null) actionsList.add(inferred);
+                 }
                }
              }
-
-             actionsList.add(
-               AIResponseAction(
-                 type: type,
-                 summary: summary,
-                 startTime: startTime,
-                 durationMinutes: durationMinutes,
-                 recurrence: recurrence,
-                 message: message,
-                 notifyAt: notifyAt,
-               ),
-             );
+           } else if (decoded is Map<String, dynamic>) {
+             actionsList = [AIResponseAction.fromJson(decoded)];
            }
+         } catch (e) {
+           debugPrint('Failed to parse <actions> JSON: $e');
+         }
+       }
 
-           final matches = actionBlock.allMatches(actionsStr);
-           for (final m in matches) {
-             appendParsedAction(
-               rawType: m.group(1) ?? '',
-               attrsRaw: m.group(2) ?? '',
-               bodyRaw: m.group(3) ?? '',
-             );
-           }
+       if (actionsList.isEmpty) {
+         parseXmlActions();
+       }
 
-           final selfMatches = selfClosingActionBlock.allMatches(actionsStr);
-           for (final m in selfMatches) {
-             appendParsedAction(
-               rawType: m.group(1) ?? '',
-               attrsRaw: m.group(2) ?? '',
-               bodyRaw: '',
-             );
-           }
-
-           if (actionsList.isEmpty) {
-             final bracketText = actionsStr
-                 .replaceAll('[', ' ')
-                 .replaceAll(']', ' ')
-                 .replaceAll('"', ' ')
-                 .trim();
-             final inferred = inferActionFromText(bracketText);
-             if (inferred != null) {
-               actionsList.add(inferred);
-             }
-           }
+       if (actionsList.isEmpty) {
+         final bracketText = normalizedActions
+             .replaceAll('[', ' ')
+             .replaceAll(']', ' ')
+             .replaceAll('"', ' ')
+             .trim();
+         final inferred = inferActionFromText(bracketText);
+         if (inferred != null) {
+           actionsList.add(inferred);
+         }
        }
      }
 

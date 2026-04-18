@@ -32,31 +32,93 @@ app.post('/api/gemini/generate', async (req, res) => {
         return res.status(401).json({ error: 'Unauthorized: Invalid token user' });
     }
 
-    // 3. Extract request body
-    const { prompt, modelName = 'gemini-2.5-flash' } = req.body;
-    
-    if (!prompt) {
-      return res.status(400).json({ error: 'Bad Request: prompt is required' });
-    }
-
-    // 4. Read secret keys from ENV (Not bundled in frontend)
+    // 3. Forward request directly to Gemini API
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       console.error('Server configuration error: GEMINI_API_KEY not found');
       return res.status(500).json({ error: 'Server configuration error' });
     }
 
-    // 5. Call Gemini
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: modelName });
-    
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
+    const { modelName = 'gemini-2.5-flash' } = req.body;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
-    res.json({ text });
+    const geminiRes = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body.payload || req.body),
+    });
+
+    const data = await geminiRes.json();
+    res.status(geminiRes.status).json(data);
 
   } catch (error) {
     console.error('API Error:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// API endpoint for Nvidia
+app.post('/api/nvidia/generate', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
+    }
+
+    const idToken = authHeader.split('Bearer ')[1];
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    if (!decodedToken.uid) return res.status(401).json({ error: 'Unauthorized' });
+
+    const apiKey = process.env.NVIDIA_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: 'Server configuration error' });
+
+    const nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(req.body),
+    });
+
+    const data = await nvidiaRes.json();
+    res.status(nvidiaRes.status).json(data);
+
+  } catch (error) {
+    console.error('Nvidia API Error:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// API endpoint for Grok
+app.post('/api/grok/generate', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
+    }
+
+    const idToken = authHeader.split('Bearer ')[1];
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    if (!decodedToken.uid) return res.status(401).json({ error: 'Unauthorized' });
+
+    const apiKey = process.env.GROK_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: 'Server configuration error' });
+
+    const grokRes = await fetch('https://api.x.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(req.body),
+    });
+
+    const data = await grokRes.json();
+    res.status(grokRes.status).json(data);
+
+  } catch (error) {
+    console.error('Grok API Error:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
