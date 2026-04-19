@@ -8,6 +8,29 @@ admin.initializeApp({
   projectId: 'vyoma-in'
 });
 
+const GEMINI_KEYS = [
+  'REDACTED',
+  'REDACTED',
+  'REDACTED',
+  'REDACTED',
+  'REDACTED',
+  'REDACTED',
+  'REDACTED',
+  'REDACTED',
+  'REDACTED',
+  'REDACTED',
+  'REDACTED',
+  'REDACTED',
+  'REDACTED',
+  'REDACTED',
+  'REDACTED',
+  'REDACTED',
+  'REDACTED',
+  'REDACTED',
+  'REDACTED',
+  'REDACTED',
+];
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -33,11 +56,7 @@ app.post('/api/gemini/generate', async (req, res) => {
     }
 
     // 3. Forward request directly to Gemini API
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      console.error('Server configuration error: GEMINI_API_KEY not found');
-      return res.status(500).json({ error: 'Server configuration error' });
-    }
+    const apiKey = GEMINI_KEYS[Math.floor(Math.random() * GEMINI_KEYS.length)];
 
     const { modelName = 'gemini-2.5-flash' } = req.body;
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
@@ -90,12 +109,6 @@ app.post('/api/nvidia/generate', async (req, res) => {
   }
 });
 
-// API endpoint for Grok
-app.post('/api/grok/generate', async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
     }
 
     const idToken = authHeader.split('Bearer ')[1];

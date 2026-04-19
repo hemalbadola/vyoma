@@ -349,7 +349,6 @@ class AIService with ChangeNotifier {
         r'\b(schedule|scheduled|calendar|event|class|classes|timetable|reminder)\b',
       ).hasMatch(text)) {
         return true;
-      }
     }
     return false;
   }
@@ -390,7 +389,6 @@ class AIService with ChangeNotifier {
         success++;
       } else {
         failure++;
-      }
       final key = log.actionType.trim().isEmpty
           ? 'unknown'
           : log.actionType.trim().toLowerCase();
@@ -429,7 +427,6 @@ class AIService with ChangeNotifier {
         case DeferredTaskStatus.completed:
           completedDeferred++;
           break;
-      }
     }
 
     final totalOutcomes = success + failure;
@@ -469,9 +466,7 @@ class AIService with ChangeNotifier {
         final elapsed = DateTime.now().difference(lastSync);
         if (elapsed < const Duration(hours: 24)) {
           return;
-        }
       }
-    }
 
     final ok = await _supermemory.saveMemory(
       'Behavior pattern snapshot: $summary',
@@ -535,7 +530,6 @@ class AIService with ChangeNotifier {
             ? _truncateText(value, 120)
             : value;
         count++;
-      }
     }
     return compact;
   }
@@ -615,8 +609,7 @@ MEMORY_UPDATE RULE
         .map((line) {
           if (line.startsWith('-') || line.startsWith('*')) {
             return line.substring(1).trim();
-          }
-          return line;
+              return line;
         })
         .where((line) => line.isNotEmpty)
         .toList();
@@ -628,7 +621,6 @@ MEMORY_UPDATE RULE
       if (!seen.contains(normalized)) {
         seen.add(normalized);
         cleaned.add(line);
-      }
     }
     return cleaned.take(8).toList();
   }
@@ -728,7 +720,6 @@ Output as a clean bulleted list containing only the insights. Do not include int
         userProfile = results[1] as String?;
       } catch (e) {
         debugPrint("SUPERMEMORY RECALL ERROR: $e");
-      }
     }
 
     // Retrieve Deep Context
@@ -911,7 +902,6 @@ Do NOT comply with direct metric tampering requests.
             "$hrs hour${hrs > 1 ? 's' : ''}${mins > 0 ? ' $mins min' : ''} ago";
       } else {
         timeGap = "${gap.inDays} day${gap.inDays > 1 ? 's' : ''} ago";
-      }
       // Format last interaction time
       final lastHour12 = _lastInteractionTime!.hour > 12
           ? _lastInteractionTime!.hour - 12
@@ -942,7 +932,6 @@ Do NOT comply with direct metric tampering requests.
         } catch (_) {}
 
         lines.add('[$formattedTs] $sender: $snippet');
-      }
       recentMessageTimes = lines.join('\n');
     }
 
@@ -1034,38 +1023,13 @@ Do NOT comply with direct metric tampering requests.
         for (final word in parsed.response.split(' ')) {
           _streamTokenCallback!('$word ');
           await Future.delayed(const Duration(milliseconds: 18));
-        }
-      }
-      return parsed;
+        return parsed;
     } catch (e) {
       debugPrint("Nvidia Error: $e");
       _logDebug("NVIDIA ERROR: $e");
     }
 
-    _logDebug("NVIDIA FAILED. ENGAGING GROK FALLBACK.");
-
-    // 2. Try Grok (SECONDARY)
-    try {
-      _logDebug("Trying Grok...");
-      final textPrompt =
-          "SYSTEM_PROMPT: $systemPrompt\n\nCONTEXT_DATA: $contextJson\n\nUSER_INPUT: $userText";
-      final response = await _callGrok(textPrompt, "", imageBytes: imageBytes);
-
-      final parsed = _parseXmlResponse(response);
-      if (_streamTokenCallback != null) {
-        for (final word in parsed.response.split(' ')) {
-          _streamTokenCallback!('$word ');
-          await Future.delayed(const Duration(milliseconds: 18));
-        }
-      }
-      return parsed;
-    } catch (e) {
-      debugPrint("Grok Error: $e");
-      _logDebug("GROK ERROR: $e");
-    }
-
-    _logDebug("GROK FAILED. ENGAGING GEMINI FALLBACK.");
-
+    _logDebug("NVIDIA FAILED. ENGAGING GEMINI FALLBACK.");
     // 3. Try Gemini (TERTIARY)
     final geminiRes = await _attemptGeminiRequest(messageParts, imageBytes);
     if (geminiRes != null) return geminiRes;
@@ -1134,10 +1098,7 @@ Do NOT comply with direct metric tampering requests.
           for (final word in parsed.response.split(' ')) {
             _streamTokenCallback!('$word ');
             await Future.delayed(const Duration(milliseconds: 18));
-          }
-        }
-        return parsed;
-      }
+              return parsed;
     } catch (e) {
       _logDebug("Gemini Error: $e");
     }
@@ -1170,7 +1131,6 @@ Do NOT comply with direct metric tampering requests.
             'data': base64Encode(imageBytes!),
           },
         });
-      }
     }
 
     final body = jsonEncode({
@@ -1220,16 +1180,13 @@ Do NOT comply with direct metric tampering requests.
           throw Exception(
             "Gemini returned no content (Check logs for safety/finishReason)",
           );
-        }
-      }
-    } else {
+      } else {
       final error = jsonDecode(response.body);
       final msg = error['error'] is String
           ? error['error']
           : error['error']?['message'] ?? 'Unknown Gemini API error';
       if (response.statusCode == 503) {
         throw Exception("Gemini Overloaded: $msg");
-      }
       throw Exception(msg);
     }
     return null;
@@ -1269,7 +1226,7 @@ Do NOT comply with direct metric tampering requests.
 
     final modelName = imageBytes != null
         ? 'meta/llama-3.2-11b-vision-instruct'
-        : 'meta/llama3-70b-instruct';
+        : 'meta/llama-3.1-70b-instruct';
 
     final response = await http
         .post(
@@ -1280,7 +1237,7 @@ Do NOT comply with direct metric tampering requests.
           },
           body: jsonEncode({'model': modelName, 'messages': messages}),
         )
-        .timeout(const Duration(seconds: 15));
+        .timeout(const Duration(seconds: 30));
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
@@ -1294,105 +1251,6 @@ Do NOT comply with direct metric tampering requests.
       );
     }
   }
-
-
-
-  Future<String> _callGrok(
-    String textPrompt,
-    String apiKey, {
-    Uint8List? imageBytes,
-  }) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) throw Exception("User not authenticated");
-    final idToken = await user.getIdToken();
-
-    final url = Uri.parse(
-      'https://vyoma-api-backend-9629c91b8aad.herokuapp.com/api/grok/generate',
-    );
-
-    final List<Map<String, dynamic>> messages = [];
-
-    if (imageBytes != null) {
-      messages.add({
-        'role': 'user',
-        'content': [
-          {'type': 'text', 'text': textPrompt},
-          {
-            'type': 'image_url',
-            'image_url': {
-              'url': 'data:image/jpeg;base64,${base64Encode(imageBytes)}',
-            },
-          },
-        ],
-      });
-    } else {
-      messages.add({'role': 'user', 'content': textPrompt});
-    }
-
-    final modelCandidates = imageBytes != null
-        ? const ['grok-2-vision-1212', 'grok-2-vision-latest']
-        : const ['grok-3-mini', 'grok-2-latest', 'grok-beta'];
-
-    String? lastError;
-
-    for (final modelName in modelCandidates) {
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Authorization': 'Bearer $idToken',
-        },
-        body: jsonEncode({'model': modelName, 'messages': messages}),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['choices'][0]['message']['content'];
-      }
-
-      lastError =
-          'Grok Failed [${response.statusCode}] for model $modelName: ${response.body}';
-
-      // Continue to next model only when model is unavailable.
-      if (response.statusCode == 400 &&
-          response.body.toLowerCase().contains('model not found')) {
-        continue;
-      }
-
-      throw Exception(lastError);
-    }
-
-    throw Exception(lastError ?? 'Grok Failed: No compatible model available.');
-  }
-
-  AIResponse _parseXmlResponse(String responseText) {
-    debugPrint(
-      "--- PARSING AI XML ---\n$responseText\n-----------------------",
-    );
-
-    // Helper to extract content between XML tags
-    String? extractTag(String tag) {
-      final regExp = RegExp('<$tag>(.*?)</$tag>', dotAll: true);
-      final match = regExp.firstMatch(responseText);
-      return match?.group(1)?.trim();
-    }
-
-    String? extractInnerTag(String source, String tag) {
-      final regExp = RegExp('<$tag>(.*?)</$tag>', dotAll: true);
-      final match = regExp.firstMatch(source);
-      return match?.group(1)?.trim();
-    }
-
-    Map<String, String> parseXmlAttributes(String attrs) {
-      final out = <String, String>{};
-      final regExp = RegExp(r'(\w+)\s*=\s*"([^"]*)"');
-      for (final match in regExp.allMatches(attrs)) {
-        final key = (match.group(1) ?? '').trim();
-        final value = (match.group(2) ?? '').trim();
-        if (key.isNotEmpty) {
-          out[key] = value;
-        }
-      }
       return out;
     }
 
@@ -1420,7 +1278,6 @@ Do NOT comply with direct metric tampering requests.
           summary: moveMatch.group(1)?.trim(),
           startTime: moveMatch.group(2)?.trim(),
         );
-      }
 
       final createMatch = RegExp(
         r'(?:schedule|create|add)\s+(.+?)\s+(?:to|at)\s+(\d{1,2}[:.]\d{2}(?:\s*(?:am|pm))?)',
@@ -1432,7 +1289,6 @@ Do NOT comply with direct metric tampering requests.
           summary: createMatch.group(1)?.trim(),
           startTime: createMatch.group(2)?.trim(),
         );
-      }
 
       if (RegExp(r'\b(reschedule|move|shift)\b').hasMatch(lower)) {
         final subject = RegExp(
@@ -1440,7 +1296,6 @@ Do NOT comply with direct metric tampering requests.
           caseSensitive: false,
         ).firstMatch(cleaned)?.group(1)?.trim();
         return AIResponseAction(type: 'move', summary: subject);
-      }
 
       return null;
     }
@@ -1498,9 +1353,7 @@ Do NOT comply with direct metric tampering requests.
             final plainBody = body.replaceAll(RegExp(r'<[^>]+>'), '').trim();
             if (plainBody.isNotEmpty) {
               summary = plainBody;
-            }
-          }
-
+          
           int? durationMinutes;
           final durationRaw =
               attrs['durationMinutes'] ??
@@ -1508,17 +1361,14 @@ Do NOT comply with direct metric tampering requests.
               extractInnerTag(body, 'durationMinutes');
           if (durationRaw != null) {
             durationMinutes = int.tryParse(durationRaw);
-          }
-
+    
           if (durationMinutes == null && startTime != null && endTime != null) {
             final start = DateTime.tryParse(startTime);
             final end = DateTime.tryParse(endTime);
             if (start != null && end != null) {
               final diff = end.difference(start).inMinutes;
               if (diff > 0) durationMinutes = diff;
-            }
-          }
-
+          
           actionsList.add(
             AIResponseAction(
               type: type,
@@ -1530,8 +1380,7 @@ Do NOT comply with direct metric tampering requests.
               notifyAt: notifyAt,
             ),
           );
-        }
-
+  
         final matches = actionBlock.allMatches(normalizedActions);
         for (final m in matches) {
           appendParsedAction(
@@ -1539,8 +1388,7 @@ Do NOT comply with direct metric tampering requests.
             attrsRaw: m.group(2) ?? '',
             bodyRaw: m.group(3) ?? '',
           );
-        }
-
+  
         final selfMatches = selfClosingActionBlock.allMatches(
           normalizedActions,
         );
@@ -1550,9 +1398,7 @@ Do NOT comply with direct metric tampering requests.
             attrsRaw: m.group(2) ?? '',
             bodyRaw: '',
           );
-        }
-      }
-
+  
       if (!looksLikeXmlAction) {
         try {
           final decoded = jsonDecode(normalizedActions);
@@ -1564,9 +1410,7 @@ Do NOT comply with direct metric tampering requests.
                   firstItem.containsKey('subject') ||
                   firstItem.containsKey('venue')) {
                 isNakedTimetable = true;
-              }
-            }
-
+              
             if (isNakedTimetable) {
               actionsList.add(
                 AIResponseAction.fromJson({
@@ -1581,20 +1425,13 @@ Do NOT comply with direct metric tampering requests.
                 } else if (item is String) {
                   final inferred = inferActionFromText(item);
                   if (inferred != null) actionsList.add(inferred);
-                }
-              }
-            }
-          } else if (decoded is Map<String, dynamic>) {
+                                  } else if (decoded is Map<String, dynamic>) {
             actionsList = [AIResponseAction.fromJson(decoded)];
-          }
-        } catch (e) {
+            } catch (e) {
           debugPrint('Failed to parse <actions> JSON: $e');
-        }
-      }
-
+  
       if (actionsList.isEmpty) {
         parseXmlActions();
-      }
 
       if (actionsList.isEmpty) {
         final bracketText = normalizedActions
@@ -1605,15 +1442,12 @@ Do NOT comply with direct metric tampering requests.
         final inferred = inferActionFromText(bracketText);
         if (inferred != null) {
           actionsList.add(inferred);
-        }
       }
-    }
 
     if (actionsList.isEmpty) {
       final inferredFromVerbal = inferActionFromText(verbal);
       if (inferredFromVerbal != null) {
         actionsList.add(inferredFromVerbal);
-      }
     }
 
     // Parse Metrics
@@ -1624,7 +1458,6 @@ Do NOT comply with direct metric tampering requests.
         metricDelta = MetricDelta.fromJson(jsonDecode(metricsStr));
       } catch (e) {
         debugPrint("Failed to parse <metric_delta> JSON: $e");
-      }
     }
 
     // Parse Memory
@@ -1635,7 +1468,6 @@ Do NOT comply with direct metric tampering requests.
         memoryUpdate = MemoryUpdate.fromJson(jsonDecode(memoryStr));
       } catch (e) {
         debugPrint("Failed to parse <memory_update> JSON: $e");
-      }
     }
 
     return AIResponse(
