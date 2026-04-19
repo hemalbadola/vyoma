@@ -18,17 +18,6 @@ const GEMINI_KEYS = [
   'REDACTED',
   'REDACTED',
   'REDACTED',
-  'REDACTED',
-  'REDACTED',
-  'REDACTED',
-  'REDACTED',
-  'REDACTED',
-  'REDACTED',
-  'REDACTED',
-  'REDACTED',
-  'REDACTED',
-  'REDACTED',
-  'REDACTED',
 ];
 
 const app = express();
