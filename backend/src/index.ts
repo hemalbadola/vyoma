@@ -109,33 +109,6 @@ app.post('/api/nvidia/generate', async (req, res) => {
   }
 });
 
-    }
-
-    const idToken = authHeader.split('Bearer ')[1];
-    const decodedToken = await admin.auth().verifyIdToken(idToken);
-    if (!decodedToken.uid) return res.status(401).json({ error: 'Unauthorized' });
-
-    const apiKey = process.env.GROK_API_KEY;
-    if (!apiKey) return res.status(500).json({ error: 'Server configuration error' });
-
-    const grokRes = await fetch('https://api.x.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify(req.body),
-    });
-
-    const data = await grokRes.json();
-    res.status(grokRes.status).json(data);
-
-  } catch (error) {
-    console.error('Grok API Error:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', version: '1.0.0' });
 });
