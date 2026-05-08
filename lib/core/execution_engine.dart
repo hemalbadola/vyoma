@@ -4,6 +4,7 @@
 // Nothing else writes to calendar, timetable, or notifications.
 // ============================================================
 
+import 'dart:convert';
 import 'package:vyoma/core/models/ai_action_proposal.dart';
 import 'package:vyoma/core/policy_engine.dart';
 import 'package:vyoma/core/audit_logger.dart';
@@ -221,9 +222,20 @@ final class VyomaExecutionEngine implements ExecutionEngine {
 
       // ── Timetable ─────────────────────────────────────────────
       case AIActionType.timetableReplaceDay:
+        List<Map<String, dynamic>> parsedSlots = const [];
+        if (action.notes != null && action.notes!.isNotEmpty) {
+          try {
+            final decoded = jsonDecode(action.notes!) as List<dynamic>;
+            parsedSlots = decoded
+                .map((e) => Map<String, dynamic>.from(e as Map))
+                .toList();
+          } catch (_) {
+            // notes is not valid JSON — fall through with empty slots
+          }
+        }
         await timetable.replaceDay(
           weekday: action.weekday!,
-          slots: const [], // Populated from action.notes JSON when built.
+          slots: parsedSlots,
         );
         return null;
 
