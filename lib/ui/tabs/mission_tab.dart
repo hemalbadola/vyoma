@@ -15,6 +15,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter/services.dart';
 import '../../ui/widgets/chat_sheet.dart';
 import '../../ui/screens/memory_vault_screen.dart';
+import '../../tutorial/tutorial_keys.dart';
 
 class MissionTab extends StatelessWidget {
   const MissionTab({super.key});
@@ -273,6 +274,7 @@ class MissionTab extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
       child: Container(
+        key: VyomaTutorialKeys.wakeupCard,
         width: double.infinity,
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
@@ -645,6 +647,7 @@ class MissionTab extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           _SyncEventsWrapper(
+            key: VyomaTutorialKeys.calendarGrid,
             builder: (context, snapshot) {
               if (!snapshot.hasData || snapshot.data!.isEmpty) {
                 return _buildEmptySchedule();
@@ -1097,20 +1100,7 @@ class MissionTab extends StatelessWidget {
               final warRoom = Provider.of<WarRoomViewModel>(context, listen: false);
               await memory.removePendingDebrief(debrief.eventId);
               if (context.mounted) {
-                Navigator.of(context).push(
-                  PageRouteBuilder(
-                    pageBuilder: (context, animation, secondaryAnimation) => const ChatSheet(),
-                    transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                      return SlideTransition(
-                        position: animation.drive(
-                          Tween(begin: const Offset(0.0, 1.0), end: Offset.zero)
-                            .chain(CurveTween(curve: Curves.easeOutQuart))
-                        ),
-                        child: child,
-                      );
-                    },
-                  ),
-                );
+                Navigator.of(context).push(ChatSheet.slideUpRoute());
                 Future.delayed(const Duration(milliseconds: 500), () {
                   warRoom.submitCommand("I am reporting for debrief on: '${debrief.title}'");
                 });
@@ -1141,20 +1131,7 @@ class MissionTab extends StatelessWidget {
   }
 
   void _openChat(BuildContext context) {
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => const ChatSheet(),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return SlideTransition(
-            position: animation.drive(
-              Tween(begin: const Offset(0.0, 1.0), end: Offset.zero)
-                .chain(CurveTween(curve: Curves.easeOutQuart))
-            ),
-            child: child,
-          );
-        },
-      ),
-    );
+    Navigator.of(context).push(ChatSheet.slideUpRoute());
   }
 
   String _getGreeting() {
@@ -1210,7 +1187,7 @@ class _Suggestion {
 
 class _SyncEventsWrapper extends StatefulWidget {
   final Widget Function(BuildContext, AsyncSnapshot<List<calendar.Event>>) builder;
-  const _SyncEventsWrapper({required this.builder});
+  const _SyncEventsWrapper({super.key, required this.builder});
 
   @override
   State<_SyncEventsWrapper> createState() => _SyncEventsWrapperState();
