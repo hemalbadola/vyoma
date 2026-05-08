@@ -1,0 +1,14 @@
+{
+  "name": "vyoma-heroku",
+  "version": "1.0.0",
+  "description": "Heroku deployment shim — proxies into /backend/",
+  "scripts": {
+    "start": "node backend/dist/index.js",
+    "build": "cd backend && npm install && npm run build",
+    "heroku-postbuild": "cd backend && npm install && npm run build"
+  },
+  "engines": {
+    "node": "20.x",
+    "npm": "10.x"
+  }
+}
