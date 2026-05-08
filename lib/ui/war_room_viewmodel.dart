@@ -20,8 +20,9 @@ import '../core/accountability_service.dart';
 import '../core/telemetry_service.dart';
 import '../core/policy_engine.dart';
 import '../core/execution_engine.dart';
-import '../core/audit_logger.dart';
+import '../core/audit_logger.dart' as protocol_audit;
 import '../core/executor_adapters.dart';
+import '../services/audit_logger.dart' as app_audit;
 
 
 class ChatSession {
@@ -102,7 +103,7 @@ class WarRoomViewModel extends ChangeNotifier {
   // Protocol Engine — the new brain
   late final VyomaPolicyEngine _policyEngine;
   late final VyomaExecutionEngine _executionEngine;
-  late final AuditLogger _auditLogger;
+  late final protocol_audit.AuditLogger _auditLogger;
   
   // Intelligence Services
   final DeviceService _deviceService = DeviceService();
@@ -178,7 +179,7 @@ class WarRoomViewModel extends ChangeNotifier {
 
     // Wire Protocol Engine
     // TODO: replace InMemoryAuditLogger with PersistentAuditLogger before production
-    _auditLogger = InMemoryAuditLogger();
+    _auditLogger = protocol_audit.InMemoryAuditLogger();
     _policyEngine = VyomaPolicyEngine();
     _executionEngine = VyomaExecutionEngine(
       calendar: CalendarExecutorImpl(_calendarService),
@@ -765,10 +766,17 @@ class WarRoomViewModel extends ChangeNotifier {
         // Audit: log each decision
         for (final d in decision.actionDecisions) {
           if (d.isDenied) {
-            await _auditLogger.record(AuditEvent.policyDeny(
+            await _auditLogger.record(protocol_audit.AuditEvent.policyDeny(
               action: d.action,
               reason: d.reason ?? 'policy violation',
             ));
+            await app_audit.AuditLogger.log(
+              eventType: d.action.type.value,
+              source: 'ai',
+              result: 'failed:${d.reason ?? 'policy violation'}',
+              inputSnippet: text,
+              aiIntent: proposal.intent.value,
+            );
           }
         }
 
@@ -786,6 +794,17 @@ class WarRoomViewModel extends ChangeNotifier {
         // Auto-execute safe actions immediately
         if (autoExecute.isNotEmpty) {
           final summary = await _executionEngine.execute(decision);
+          if (summary.successCount > 0) {
+            for (final d in autoExecute) {
+              await app_audit.AuditLogger.log(
+                eventType: d.action.type.value,
+                source: 'ai',
+                result: 'success',
+                inputSnippet: text,
+                aiIntent: proposal.intent.value,
+              );
+            }
+          }
           if (summary.successCount > 0) {
             _addSystemStatus(
               "Executed ${summary.successCount} action${summary.successCount > 1 ? 's' : ''}.",
@@ -1411,7 +1430,12 @@ class WarRoomViewModel extends ChangeNotifier {
 
       // Log each confirmed action for audit trail
       for (final d in confirmedActions) {
-        await _auditLogger.record(AuditEvent.userConfirmed(action: d.action));
+        await _auditLogger.record(protocol_audit.AuditEvent.userConfirmed(action: d.action));
+        await app_audit.AuditLogger.log(
+          eventType: d.action.type.value,
+          source: 'user',
+          result: 'success',
+        );
       }
 
       if (summary.failureCount > 0) {
@@ -1428,8 +1452,18 @@ class WarRoomViewModel extends ChangeNotifier {
   /// Cancel all pending actions without executing.
   /// Called from PendingActionCard's CANCEL button or /deny command.
   void denyPendingDecision() {
+    final decision = _pendingDecision;
     _pendingDecision = null;
     _addMessage('VYOMA', 'Understood. No changes were made.');
+    if (decision != null) {
+      for (final d in decision.actionDecisions.where((d) => d.needsConfirmation)) {
+        app_audit.AuditLogger.log(
+          eventType: d.action.type.value,
+          source: 'user',
+          result: 'cancelled',
+        );
+      }
+    }
     notifyListeners();
   }
 
