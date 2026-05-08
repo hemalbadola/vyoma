@@ -44,7 +44,7 @@ jobs:
         run: flutter pub get
 
       - name: Build App
-        run: flutter build macos --release
+        run: flutter build macos --release --no-codesign
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
