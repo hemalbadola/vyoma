@@ -18,6 +18,7 @@ decode_*.py
 list_models_py.py
 test_*.dart
 debug_err.dart
+lib/core/secrets.dart
 test_out.json
 *.iml
 
