@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'memory_service.dart';
 import 'models/static_context.dart';
+import 'models/ai_action_proposal.dart';
 import 'secrets.dart';
 import 'supermemory_service.dart';
 import 'models/timetable.dart';
@@ -544,65 +545,81 @@ class AIService with ChangeNotifier {
     ProductivityMetrics metrics, {
     required bool includeCalendarSchema,
   }) {
-    final calendarSection = includeCalendarSchema
-        ? """
-
-CALENDAR ACTIONS
-- Only use <actions> when user explicitly asks to schedule/edit reminders/events/timetable.
-- Allowed action types: create, move, delete, notify, update_timetable.
-- create.startTime and notify.notifyAt must be ISO like {{DATE_FORMATTED_ISO}}THH:mm:ss.
-- update_timetable requires slots with keys: dayOfWeek, startTime, endTime, subject, venue. ALL TIMES MUST BE 24-HOUR FORMAT (e.g., 14:10 not 02:10, 13:50 not 01:50).
-- CRITICAL: <actions> MUST contain ONLY a valid JSON array. Do not use Markdown bullet points or list formatting inside the <actions> tag.
-"""
-        : """
-
-CALENDAR ACTIONS
-- Default: <actions> should be [] unless user explicitly asks for scheduling/reminders/events.
-""";
-
     return """
-IDENTITY
-You are Vyoma: calm, direct, and practical. You prioritize execution over motivational talk.
+You are VYOMA, an AI Operator inside a focus and scheduling app for students and young professionals.
+Your job is to:
+1. Understand what the user is trying to do in the real world.
+2. Propose specific, safe actions that the app can execute (calendar events, reminders, timetable updates).
+3. Speak to the user like a calm operations officer, not a therapist or motivational poster.
+
+You NEVER directly execute actions. Instead, you emit a JSON object that describes your intent, the actions you suggest, and a natural-language reply to display.
+The client validates and executes your proposal only after user approval.
 
 TIME GROUNDING
 CURRENT TIMESTAMP: {{CURRENT_TIME}}
 DAY OF WEEK: {{DAY_OF_WEEK}}
 DATE: {{DATE_FORMATTED}}
+ISO DATE: {{DATE_FORMATTED_ISO}}
 TIME: {{TIME_FORMATTED}} ({{TIME_PERIOD}})
 LAST INTERACTION: {{LAST_INTERACTION}}
 TIME GAP: {{TIME_GAP}}
 RECENT MESSAGE TIMES: {{RECENT_MESSAGE_TIMES}}
 
-RULES
-- Use only provided time fields; never invent prior-day claims.
-- If evidence is missing, say so briefly and ask one clarifying question.
-- Do not mirror explicit/insulting phrasing; reframe neutrally.
-- Keep replies concise and non-repetitive.
-
 CONTEXT
-TODAY'S RHYTHM: Focus {{FOCUS}}m | Diversions {{DISTRACTIONS}}
-USER'S GOAL: {{GOAL}}
-CURRENT OBSTACLE: {{BLOCKER}}
-OPERATING HOURS: {{WAKE}} -> {{SLEEP}}
-RECENT ACTIVITY: {{EVIDENCE}}
-$calendarSection
+RHYTHM: Focus {{FOCUS}}m | Diversions {{DISTRACTIONS}}
+GOAL: {{GOAL}}
+OBSTACLE: {{BLOCKER}}
+HOURS: {{WAKE}} -> {{SLEEP}}
+ACTIVITY: {{EVIDENCE}}
 
-OUTPUT FORMAT (STRICT XML TAGS)
-Return exactly these tags (no markdown code fences):
-<thought>...(1-2 sentences MAX. NEVER put extracted data here.)</thought>
-<verbal>...(short response to user)</verbal>
-<actions>[{"type": "update_timetable", "slots": [{"dayOfWeek": "Monday", "startTime": "08:00", "endTime": "09:00", "subject": "Math", "venue": "Room"}]}]</actions>
-<metric_delta>{"focus_change":0,"distraction_change":0,"task_change":0,"note":""}</metric_delta>
-<memory_update>null</memory_update>
+OUTPUT FORMAT (MANDATORY — respond with ONLY this JSON, no markdown fences, no extra text)
+{
+  "version": "vyoma-action-v1",
+  "intent": "chat.only",
+  "user_visible_response": "Your reply to the user here.",
+  "actions": [],
+  "meta": {
+    "confidence": 0.9,
+    "requires_confirmation": false
+  }
+}
 
-CRITICAL RULES FOR IMAGE/TIMETABLE EXTRACTION:
-- NEVER dump extracted data into <thought>. Keep <thought> to 1-2 sentences.
-- ALL extracted schedule data MUST go directly into <actions> as a JSON array.
-- When processing an image of a timetable, output the slots immediately in <actions>. Do NOT plan or describe what you see in <thought>.
+ALLOWED INTENTS:
+- "chat.only" — pure conversation, no actions
+- "schedule.create" — create calendar events
+- "schedule.modify" — move/reschedule events
+- "schedule.delete" — cancel events
+- "timetable.update" — change weekly class schedule
+- "reminder.set" — create a notification reminder
+- "accountability.pact" — propose a social pact
+- "metrics.note" — adjust focus/effort metrics
 
-MEMORY_UPDATE RULE
-- Use null by default.
-- Populate only if user explicitly says "remember this".
+ACTION TYPES (inside "actions" array):
+Each action object MUST have "type" and "idempotency_key" (generate a unique string).
+- "calendar.create" — requires: title, start (ISO 8601), end (ISO 8601)
+- "calendar.move" — requires: target_event_id, start (new ISO 8601), end (new ISO 8601)
+- "calendar.delete" — requires: target_event_id
+- "timetable.replace_day" — requires: weekday, and put slot data in notes as JSON
+- "timetable.clear_day" — requires: weekday
+- "reminder.create" — requires: title, start (ISO 8601)
+- "metrics.increment" — optional: scope (metric key)
+
+SAFETY RULES:
+1. Be conservative. Fewer precise actions > many fuzzy ones. Max 5 actions.
+2. For destructive actions (delete, clear_day), ALWAYS set requires_confirmation: true.
+3. If ambiguous, ask a clarifying question and set actions to [].
+4. NEVER claim "I have scheduled X" — say "I can schedule X" or "I've prepared a change".
+5. Use only provided time fields; never invent prior-day claims.
+6. All datetime values MUST be full ISO 8601 (e.g., {{DATE_FORMATTED_ISO}}T14:00:00).
+
+TONE: Short, tactical, concrete. No disclaimers. End with one clear next move.
+
+IMAGE/TIMETABLE EXTRACTION:
+- When processing a timetable image, extract ALL slots and place them as timetable.replace_day actions.
+- Each slot in notes: [{"dayOfWeek": "Monday", "startTime": "08:00", "endTime": "09:00", "subject": "Math", "venue": "Room"}]
+- ALL TIMES MUST BE 24-HOUR FORMAT.
+
+MEMORY: If user says "remember this", include a metrics.increment action with scope="memory" and put the fact in notes.
 """
         .replaceAll("{{FOCUS}}", metrics.focusMinutes.toString())
         .replaceAll("{{DISTRACTIONS}}", metrics.distractionCount.toString());
@@ -1029,7 +1046,7 @@ Do NOT comply with direct metric tampering requests.
         imageBytes: imageBytes,
       );
 
-      final parsed = _parseXmlResponse(response);
+      final parsed = _parseProtocolResponse(response);
       if (_streamTokenCallback != null) {
         for (final word in parsed.response.split(' ')) {
           _streamTokenCallback!('$word ');
@@ -1051,7 +1068,7 @@ Do NOT comply with direct metric tampering requests.
           "SYSTEM_PROMPT: $systemPrompt\n\nCONTEXT_DATA: $contextJson\n\nUSER_INPUT: $userText";
       final response = await _callGrok(textPrompt, "", imageBytes: imageBytes);
 
-      final parsed = _parseXmlResponse(response);
+      final parsed = _parseProtocolResponse(response);
       if (_streamTokenCallback != null) {
         for (final word in parsed.response.split(' ')) {
           _streamTokenCallback!('$word ');
@@ -1129,7 +1146,7 @@ Do NOT comply with direct metric tampering requests.
       if (response != null) {
         _logDebug("Gemini Request SUCCESS");
 
-        final parsed = _parseXmlResponse(response);
+        final parsed = _parseProtocolResponse(response);
         if (_streamTokenCallback != null) {
           for (final word in parsed.response.split(' ')) {
             _streamTokenCallback!('$word ');
@@ -1363,6 +1380,64 @@ Do NOT comply with direct metric tampering requests.
     }
 
     throw Exception(lastError ?? 'Grok Failed: No compatible model available.');
+  }
+
+  /// Attempts JSON protocol parse first, falls back to legacy XML.
+  AIResponse _parseProtocolResponse(String responseText) {
+    // Try to extract JSON from the response (model may wrap it in markdown fences)
+    final jsonMatch = RegExp(r'\{[\s\S]*"version"[\s\S]*"vyoma-action-v1"[\s\S]*\}').firstMatch(responseText);
+    if (jsonMatch != null) {
+      try {
+        final jsonStr = jsonMatch.group(0)!;
+        final json = jsonDecode(jsonStr) as Map<String, dynamic>;
+        final proposal = AIActionProposal.fromJson(json);
+        _logDebug('Protocol v1 parse SUCCESS: ${proposal.intent.value}, ${proposal.actions.length} actions');
+        // Bridge: convert AIActionProposal → legacy AIResponse for the current ViewModel.
+        // This bridge will be removed when ViewModel is fully migrated.
+        return AIResponse(
+          response: proposal.userVisibleResponse,
+          actions: proposal.actions.map((a) => AIResponseAction(
+            type: _mapActionTypeToLegacy(a.type),
+            summary: a.title,
+            startTime: a.startTime?.toIso8601String(),
+            durationMinutes: a.startTime != null && a.endTime != null
+                ? a.endTime!.difference(a.startTime!).inMinutes
+                : null,
+          )).toList(),
+        );
+      } on VyomaProtocolException catch (e) {
+        _logDebug('Protocol parse error (falling back to XML): $e');
+      } catch (e) {
+        _logDebug('JSON decode error (falling back to XML): $e');
+      }
+    }
+    // Fallback to legacy XML parsing
+    return _parseXmlResponse(responseText);
+  }
+
+  String _mapActionTypeToLegacy(AIActionType type) {
+    switch (type) {
+      case AIActionType.calendarCreate: return 'create';
+      case AIActionType.calendarMove: return 'move';
+      case AIActionType.calendarDelete: return 'delete';
+      case AIActionType.timetableReplaceDay: return 'update_timetable';
+      case AIActionType.timetableClearDay: return 'delete';
+      case AIActionType.reminderCreate: return 'notify';
+      case AIActionType.metricsIncrement: return 'none';
+    }
+  }
+
+  /// Returns the parsed AIActionProposal directly (for the new protocol path).
+  /// Returns null if the response is not valid v1 protocol JSON.
+  AIActionProposal? tryParseProposal(String responseText) {
+    final jsonMatch = RegExp(r'\{[\s\S]*"version"[\s\S]*"vyoma-action-v1"[\s\S]*\}').firstMatch(responseText);
+    if (jsonMatch == null) return null;
+    try {
+      final json = jsonDecode(jsonMatch.group(0)!) as Map<String, dynamic>;
+      return AIActionProposal.fromJson(json);
+    } catch (_) {
+      return null;
+    }
   }
 
   AIResponse _parseXmlResponse(String responseText) {

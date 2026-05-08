@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import '../war_room_viewmodel.dart';
+import 'pending_action_card.dart';
 
 class ChatSheet extends StatefulWidget {
   const ChatSheet({super.key});
@@ -292,11 +293,26 @@ class _ChatSheetState extends State<ChatSheet> with TickerProviderStateMixin {
                       ListView.separated(
                         controller: _scrollController,
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-                        itemCount: vm.messages.length + (vm.isProcessing ? 1 : 0) + (isFresh ? 1 : 0),
+                        itemCount: vm.messages.length 
+                            + (vm.pendingDecision != null ? 1 : 0)
+                            + (vm.isProcessing ? 1 : 0) 
+                            + (isFresh ? 1 : 0),
                         separatorBuilder: (context, index) => const SizedBox(height: 12),
                         itemBuilder: (context, index) {
-                          if (isFresh && index == vm.messages.length) {
+                          if (isFresh && index == vm.messages.length + (vm.pendingDecision != null ? 1 : 0)) {
                              return _buildTacticalSuggestions(vm);
+                          }
+
+                          // PendingActionCard — sits right after the last message
+                          if (vm.pendingDecision != null && index == vm.messages.length) {
+                            final pending = vm.pendingDecision!.pendingConfirmations;
+                            if (pending.isNotEmpty) {
+                              return PendingActionCard(
+                                pendingActions: pending,
+                                onApprove: () => vm.approvePendingDecision(),
+                                onDeny: () => vm.denyPendingDecision(),
+                              );
+                            }
                           }
                           
                           if (index >= vm.messages.length) {

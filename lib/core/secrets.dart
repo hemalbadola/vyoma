@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../config/env_config.dart';
 
 class Secrets {
   static const String _desktopClientSecretEnv =
@@ -62,11 +62,7 @@ class Secrets {
   }
 
   static String _runtimeEnv(String key) {
-    try {
-      return (dotenv.env[key] ?? '').trim();
-    } catch (_) {
-      return '';
-    }
+    return EnvConfig.get(key);
   }
 
   static List<String> _parseCsv(String rawInput) {

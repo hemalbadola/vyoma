@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../theme/vyoma_colors.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -12,17 +13,7 @@ import '../war_room_viewmodel.dart';
 class IntelTab extends StatelessWidget {
   const IntelTab({super.key});
 
-  static const kSurface = Color(0xFF060809);
-  static const kCardBg = Color(0xFF0E1114);
-  static const kBorder = Color(0xFF1E2430);
-  static const kAccent = Color(0xFF10B981);
-  static const kAccentLight = Color(0xFF34D399);
-  static const kWarm = Color(0xFFF59E0B);
-  static const kRose = Color(0xFFF43F5E);
-  static const kBlue = Color(0xFF3B82F6);
-  static const kText = Color(0xFFFFFFFF);
-  static const kTextSecondary = Color(0xFFA3A3A3);
-  static const kTextMuted = Color(0xFF6B7280);
+
 
   @override
   Widget build(BuildContext context) {
@@ -57,7 +48,7 @@ class IntelTab extends StatelessWidget {
               Text(
                 'Progress',
                 style: GoogleFonts.inter(
-                  color: kText,
+                  color: VyomaColors.textPrimary,
                   fontSize: 24,
                   fontWeight: FontWeight.w600,
                   letterSpacing: -0.3,
@@ -66,7 +57,7 @@ class IntelTab extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 'Your weekly performance overview',
-                style: GoogleFonts.inter(color: kTextMuted, fontSize: 13),
+                style: GoogleFonts.inter(color: VyomaColors.textMuted, fontSize: 13),
               ),
               const SizedBox(height: 24),
 
@@ -101,10 +92,10 @@ class IntelTab extends StatelessWidget {
     final progress = hasScore ? (score / 100).clamp(0.0, 1.0) : 0.0;
 
     final ringColor = score >= 70
-        ? kAccent
+        ? VyomaColors.accent
         : score >= 40
-            ? kWarm
-            : kRose;
+            ? VyomaColors.warning
+            : VyomaColors.error;
 
     return Container(
       width: double.infinity,
@@ -113,7 +104,7 @@ class IntelTab extends StatelessWidget {
         gradient: LinearGradient(
           colors: [
             ringColor.withValues(alpha: 0.06),
-            kCardBg,
+            VyomaColors.bgCard,
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -147,7 +138,7 @@ class IntelTab extends StatelessWidget {
                     Text(
                       hasScore ? '$score' : '—',
                       style: GoogleFonts.inter(
-                        color: kText,
+                        color: VyomaColors.textPrimary,
                         fontSize: hasScore ? 24 : 18,
                         fontWeight: FontWeight.w700,
                       ),
@@ -156,7 +147,7 @@ class IntelTab extends StatelessWidget {
                       Text(
                         '%',
                         style: GoogleFonts.inter(
-                          color: kTextMuted,
+                          color: VyomaColors.textMuted,
                           fontSize: 11,
                           fontWeight: FontWeight.w500,
                         ),
@@ -174,7 +165,7 @@ class IntelTab extends StatelessWidget {
                 Text(
                   'MOMENTUM',
                   style: GoogleFonts.inter(
-                    color: kTextMuted,
+                    color: VyomaColors.textMuted,
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 1.5,
@@ -186,7 +177,7 @@ class IntelTab extends StatelessWidget {
                       ? _momentumLabel(score)
                       : 'Building baseline',
                   style: GoogleFonts.inter(
-                    color: kText,
+                    color: VyomaColors.textPrimary,
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
                     letterSpacing: -0.2,
@@ -198,7 +189,7 @@ class IntelTab extends StatelessWidget {
                       ? clarity.rationale
                       : 'Complete a focus session and one reflection to start tracking.',
                   style: GoogleFonts.inter(
-                    color: kTextSecondary,
+                    color: VyomaColors.textSecondary,
                     fontSize: 12,
                     height: 1.4,
                   ),
@@ -228,7 +219,7 @@ class IntelTab extends StatelessWidget {
             label: 'Focus',
             value: '${(metrics.focusMinutes / 60).toStringAsFixed(1)}h',
             delta: insights.focusDeltaText,
-            color: kAccent,
+            color: VyomaColors.accent,
             trend: _trendFromDelta(insights.focusDeltaText),
           ),
           _MetricData(
@@ -236,7 +227,7 @@ class IntelTab extends StatelessWidget {
             label: 'Tasks',
             value: '${metrics.tasksCompleted}',
             delta: insights.taskDeltaText,
-            color: kBlue,
+            color: VyomaColors.info,
             trend: _trendFromDelta(insights.taskDeltaText),
           ),
           _MetricData(
@@ -244,7 +235,7 @@ class IntelTab extends StatelessWidget {
             label: 'Distractions',
             value: '${metrics.distractionCount}',
             delta: insights.distractionDeltaText,
-            color: kRose,
+            color: VyomaColors.error,
             trend: _trendFromDelta(insights.distractionDeltaText, invert: true),
           ),
         ];
@@ -289,17 +280,17 @@ class IntelTab extends StatelessWidget {
             ? Icons.trending_down_rounded
             : Icons.trending_flat_rounded;
     final trendColor = data.trend > 0
-        ? kAccent
+        ? VyomaColors.accent
         : data.trend < 0
-            ? kRose
-            : kTextMuted;
+            ? VyomaColors.error
+            : VyomaColors.textMuted;
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: kCardBg,
+        color: VyomaColors.bgCard,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: kBorder, width: 0.5),
+        border: Border.all(color: VyomaColors.borderSubtle, width: 0.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -323,7 +314,7 @@ class IntelTab extends StatelessWidget {
           Text(
             data.value,
             style: GoogleFonts.jetBrainsMono(
-              color: kText,
+              color: VyomaColors.textPrimary,
               fontSize: 26,
               fontWeight: FontWeight.w600,
             ),
@@ -332,7 +323,7 @@ class IntelTab extends StatelessWidget {
           Text(
             data.label,
             style: GoogleFonts.inter(
-              color: kTextSecondary,
+              color: VyomaColors.textSecondary,
               fontSize: 12,
               fontWeight: FontWeight.w500,
             ),
@@ -341,7 +332,7 @@ class IntelTab extends StatelessWidget {
           Text(
             data.delta,
             style: GoogleFonts.inter(
-              color: kTextMuted,
+              color: VyomaColors.textMuted,
               fontSize: 11,
             ),
           ),
@@ -413,7 +404,7 @@ class IntelTab extends StatelessWidget {
             Text(
               'WEEKLY RETROSPECTIVE',
               style: GoogleFonts.inter(
-                color: kTextMuted,
+                color: VyomaColors.textMuted,
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 1.5,
@@ -424,9 +415,9 @@ class IntelTab extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: kCardBg,
+                color: VyomaColors.bgCard,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: kBorder, width: 0.5),
+                border: Border.all(color: VyomaColors.borderSubtle, width: 0.5),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -450,7 +441,7 @@ class IntelTab extends StatelessWidget {
                                   Text(
                                     (bar.focusMinutes / 60).toStringAsFixed(1),
                                     style: GoogleFonts.jetBrainsMono(
-                                      color: kTextMuted,
+                                      color: VyomaColors.textMuted,
                                       fontSize: 8,
                                     ),
                                   ),
@@ -460,8 +451,8 @@ class IntelTab extends StatelessWidget {
                                   height: height,
                                   decoration: BoxDecoration(
                                     color: bar.isToday
-                                        ? kAccent
-                                        : kAccent.withValues(alpha: 0.3),
+                                        ? VyomaColors.accent
+                                        : VyomaColors.accent.withValues(alpha: 0.3),
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                 ),
@@ -469,7 +460,7 @@ class IntelTab extends StatelessWidget {
                                 Text(
                                   bar.label,
                                   style: GoogleFonts.inter(
-                                    color: bar.isToday ? kText : kTextMuted,
+                                    color: bar.isToday ? VyomaColors.textPrimary : VyomaColors.textMuted,
                                     fontSize: 9,
                                     fontWeight: bar.isToday ? FontWeight.w600 : FontWeight.w400,
                                   ),
@@ -520,7 +511,7 @@ class IntelTab extends StatelessWidget {
 
   Widget _buildRetroStat(String label, String value, {int delta = 0, bool invertColor = false}) {
     final isPositive = invertColor ? delta < 0 : delta > 0;
-    final deltaColor = delta == 0 ? kTextMuted : (isPositive ? kAccent : kRose);
+    final deltaColor = delta == 0 ? VyomaColors.textMuted : (isPositive ? VyomaColors.accent : VyomaColors.error);
     final deltaPrefix = delta > 0 ? '+' : '';
 
     return Expanded(
@@ -530,7 +521,7 @@ class IntelTab extends StatelessWidget {
           Text(
             label.toUpperCase(),
             style: GoogleFonts.inter(
-              color: kTextMuted,
+              color: VyomaColors.textMuted,
               fontSize: 9,
               fontWeight: FontWeight.w600,
               letterSpacing: 1,
@@ -540,7 +531,7 @@ class IntelTab extends StatelessWidget {
           Text(
             value,
             style: GoogleFonts.jetBrainsMono(
-              color: kText,
+              color: VyomaColors.textPrimary,
               fontSize: 18,
               fontWeight: FontWeight.w600,
             ),
@@ -566,7 +557,7 @@ class IntelTab extends StatelessWidget {
       digestLines.add(_DigestLine(
         icon: Icons.wb_sunny_outlined,
         text: 'You focus best in the ${insights.bestFocusWindow.toLowerCase()}.',
-        color: kAccent,
+        color: VyomaColors.accent,
       ));
     }
 
@@ -575,7 +566,7 @@ class IntelTab extends StatelessWidget {
       digestLines.add(_DigestLine(
         icon: Icons.task_alt_rounded,
         text: '${metrics.tasksCompleted} task${metrics.tasksCompleted > 1 ? 's' : ''} completed — ${insights.taskDeltaText}.',
-        color: kBlue,
+        color: VyomaColors.info,
       ));
     }
 
@@ -584,7 +575,7 @@ class IntelTab extends StatelessWidget {
       digestLines.add(_DigestLine(
         icon: Icons.report_gmailerrorred_rounded,
         text: 'Top friction: "${insights.primaryFriction}" — address this to unlock flow.',
-        color: kWarm,
+        color: VyomaColors.warning,
       ));
     }
 
@@ -593,7 +584,7 @@ class IntelTab extends StatelessWidget {
       digestLines.add(_DigestLine(
         icon: Icons.local_fire_department_rounded,
         text: '$streakDays-day journal streak. Consistency builds clarity.',
-        color: kRose,
+        color: VyomaColors.error,
       ));
     }
 
@@ -602,7 +593,7 @@ class IntelTab extends StatelessWidget {
       digestLines.add(_DigestLine(
         icon: Icons.tag_rounded,
         text: 'Recurring theme: "${insights.dominantTheme}" — this needs your attention.',
-        color: kTextSecondary,
+        color: VyomaColors.textSecondary,
       ));
     }
 
@@ -611,7 +602,7 @@ class IntelTab extends StatelessWidget {
       digestLines.add(_DigestLine(
         icon: Icons.lightbulb_outline_rounded,
         text: 'Complete a few focus sessions and journal entries to unlock personalized insights.',
-        color: kTextMuted,
+        color: VyomaColors.textMuted,
       ));
     }
 
@@ -621,7 +612,7 @@ class IntelTab extends StatelessWidget {
         Text(
           'AI COACH',
           style: GoogleFonts.inter(
-            color: kTextMuted,
+            color: VyomaColors.textMuted,
             fontSize: 11,
             fontWeight: FontWeight.w600,
             letterSpacing: 1.5,
@@ -632,9 +623,9 @@ class IntelTab extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            color: kCardBg,
+            color: VyomaColors.bgCard,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: kBorder, width: 0.5),
+            border: Border.all(color: VyomaColors.borderSubtle, width: 0.5),
           ),
           child: Column(
             children: digestLines.asMap().entries.map((e) {
@@ -660,7 +651,7 @@ class IntelTab extends StatelessWidget {
                       child: Text(
                         line.text,
                         style: GoogleFonts.inter(
-                          color: kTextSecondary,
+                          color: VyomaColors.textSecondary,
                           fontSize: 13,
                           height: 1.5,
                         ),
@@ -683,7 +674,7 @@ class IntelTab extends StatelessWidget {
         Text(
           'RECENT ACTIVITY',
           style: GoogleFonts.inter(
-            color: kTextMuted,
+            color: VyomaColors.textMuted,
             fontSize: 11,
             fontWeight: FontWeight.w600,
             letterSpacing: 1.5,
@@ -695,9 +686,9 @@ class IntelTab extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: kCardBg,
+              color: VyomaColors.bgCard,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: kBorder, width: 0.5),
+              border: Border.all(color: VyomaColors.borderSubtle, width: 0.5),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -705,7 +696,7 @@ class IntelTab extends StatelessWidget {
                 Text(
                   'No activity yet',
                   style: GoogleFonts.inter(
-                    color: kText,
+                    color: VyomaColors.textPrimary,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                   ),
@@ -714,7 +705,7 @@ class IntelTab extends StatelessWidget {
                 Text(
                   'Start with these:\n• Schedule a focus block\n• Complete one task\n• Write a journal reflection',
                   style: GoogleFonts.inter(
-                    color: kTextSecondary,
+                    color: VyomaColors.textSecondary,
                     fontSize: 13,
                     height: 1.5,
                   ),
@@ -732,12 +723,12 @@ class IntelTab extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 decoration: BoxDecoration(
-                  color: kCardBg,
+                  color: VyomaColors.bgCard,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     color: success
-                        ? kAccent.withValues(alpha: 0.12)
-                        : kRose.withValues(alpha: 0.12),
+                        ? VyomaColors.accent.withValues(alpha: 0.12)
+                        : VyomaColors.error.withValues(alpha: 0.12),
                     width: 0.5,
                   ),
                 ),
@@ -747,13 +738,13 @@ class IntelTab extends StatelessWidget {
                       width: 24,
                       height: 24,
                       decoration: BoxDecoration(
-                        color: (success ? kAccent : kRose).withValues(alpha: 0.1),
+                        color: (success ? VyomaColors.accent : VyomaColors.error).withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Icon(
                         success ? Icons.check_rounded : Icons.close_rounded,
                         size: 14,
-                        color: success ? kAccent : kRose,
+                        color: success ? VyomaColors.accent : VyomaColors.error,
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -761,7 +752,7 @@ class IntelTab extends StatelessWidget {
                       child: Text(
                         log.actionType,
                         style: GoogleFonts.inter(
-                          color: kText.withValues(alpha: 0.85),
+                          color: VyomaColors.textPrimary.withValues(alpha: 0.85),
                           fontSize: 13,
                         ),
                       ),
@@ -769,7 +760,7 @@ class IntelTab extends StatelessWidget {
                     Text(
                       '${log.timestamp.hour.toString().padLeft(2, '0')}:${log.timestamp.minute.toString().padLeft(2, '0')}',
                       style: GoogleFonts.jetBrainsMono(
-                        color: kTextMuted,
+                        color: VyomaColors.textMuted,
                         fontSize: 11,
                       ),
                     ),

@@ -7,9 +7,10 @@ import 'package:googleapis/calendar/v3.dart' as calendar;
 import '../core/ai_service.dart';
 import '../core/calendar_service.dart';
 import '../core/models/static_context.dart'; 
+import '../core/models/ai_action_proposal.dart';
 import '../core/device_service.dart'; 
 import '../core/weather_service.dart'; 
-import '../core/timetable_service.dart'; // Added
+import '../core/timetable_service.dart';
 import '../core/models/timetable.dart';
 import '../core/notification_service.dart';
 import '../core/chronos_service.dart';
@@ -17,6 +18,11 @@ import '../core/memory_service.dart';
 import '../core/friend_service.dart';
 import '../core/accountability_service.dart';
 import '../core/telemetry_service.dart';
+import '../core/policy_engine.dart';
+import '../core/execution_engine.dart';
+import '../core/audit_logger.dart' as protocol_audit;
+import '../core/executor_adapters.dart';
+import '../services/audit_logger.dart' as app_audit;
 
 
 class ChatSession {
@@ -60,33 +66,7 @@ class _UndoEntry {
   _UndoEntry({required this.label, required this.undo});
 }
 
-class _UserIntent {
-  final bool scheduling;
-  final bool reminder;
-  final bool timetable;
-  final bool eventEdit;
-  final bool schedulingConfirmation;
 
-  const _UserIntent({
-    required this.scheduling,
-    required this.reminder,
-    required this.timetable,
-    required this.eventEdit,
-    required this.schedulingConfirmation,
-  });
-}
-
-class _PendingActionPlan {
-  final List<AIResponseAction> actions;
-  final int? requestedWeekday;
-  final String sourceUserText;
-
-  const _PendingActionPlan({
-    required this.actions,
-    required this.requestedWeekday,
-    required this.sourceUserText,
-  });
-}
 
 class WarRoomViewModel extends ChangeNotifier {
   static const Map<String, List<String>> commandHelp = {
@@ -119,6 +99,11 @@ class WarRoomViewModel extends ChangeNotifier {
   final FriendService _friendService;
   final AccountabilityService _accountabilityService;
   final TelemetryService _telemetryService;
+
+  // Protocol Engine — the new brain
+  late final VyomaPolicyEngine _policyEngine;
+  late final VyomaExecutionEngine _executionEngine;
+  late final protocol_audit.AuditLogger _auditLogger;
   
   // Intelligence Services
   final DeviceService _deviceService = DeviceService();
@@ -153,7 +138,9 @@ class WarRoomViewModel extends ChangeNotifier {
 
   final List<_UndoEntry> _undoStack = [];
   bool get canUndo => _undoStack.isNotEmpty;
-  _PendingActionPlan? _pendingActionPlan;
+  // Protocol: pending decision awaiting user confirmation
+  ProposalDecision? _pendingDecision;
+  ProposalDecision? get pendingDecision => _pendingDecision;
 
   // Live streaming text — shown in the chat as a typing bubble
   String _streamingText = '';
@@ -189,13 +176,30 @@ class WarRoomViewModel extends ChangeNotifier {
        _accountabilityService = accountabilityService,
        _telemetryService = telemetryService {
     _chronosService = ChronosService(_aiService.memory);
+
+    // Wire Protocol Engine
+    // TODO: replace InMemoryAuditLogger with PersistentAuditLogger before production
+    _auditLogger = protocol_audit.InMemoryAuditLogger();
+    _policyEngine = VyomaPolicyEngine();
+    _executionEngine = VyomaExecutionEngine(
+      calendar: CalendarExecutorImpl(_calendarService),
+      timetable: TimetableExecutorImpl(_timetableService),
+      reminders: ReminderExecutorImpl(_notificationService),
+      metrics: MetricsExecutorImpl((key, delta) async {
+        if (key == 'focus') _updateMetrics(focusDelta: delta);
+        else if (key == 'distraction') _updateMetrics(distractionDelta: delta);
+        else if (key == 'task') _updateMetrics(taskDelta: delta);
+      }),
+      audit: _auditLogger,
+    );
+
     _notificationService.restorePending(
       onDispatch: (body) {
         _addMessage("VYOMA", body);
       },
     );
     _startFocusCheckLoop();
-    _initSessions(); // Load Index First
+    _initSessions();
     _loadMetrics();
   }
 
@@ -505,27 +509,37 @@ class WarRoomViewModel extends ChangeNotifier {
     );
 
     final lowerInput = text.toLowerCase().trim();
-    if (_pendingActionPlan != null) {
+    if (_pendingDecision != null) {
       if (_isApprovalPhrase(lowerInput)) {
-        await _approvePendingActionPlan();
+        await approvePendingDecision();
         _selectedImageBytes = null;
         return;
       }
       if (_isDenialPhrase(lowerInput)) {
-        _pendingActionPlan = null;
-        _addMessage("VYOMA", "Understood. I did not make any scheduling changes.");
+        denyPendingDecision();
         _selectedImageBytes = null;
         return;
       }
 
-      _addMessage(
-        "VYOMA",
-        "I still have a pending action plan. Reply \"go ahead\" to execute it, or \"no\" to cancel.",
-      );
-      _selectedImageBytes = null;
-      return;
+      // BUG 2 FIX: If user sends a substantive message (>12 chars) that isn't
+      // approval or denial, force-reset the pending decision and proceed to
+      // normal AI flow. This prevents users from being permanently locked.
+      if (lowerInput.length > 12) {
+        denyPendingDecision();
+        // Fall through to normal processing — don't return
+      } else {
+        _addMessage(
+          "VYOMA",
+          "I still have a pending action plan. Reply \"go ahead\" to execute it, or \"no\" to cancel.",
+        );
+        _selectedImageBytes = null;
+        return;
+      }
     }
 
+    // LEGACY: These domain-specific handlers bypass the protocol engine.
+    // They handle reads/deletes without an AI call (faster UX).
+    // Remove when protocol engine handles all intents natively.
     if (_isTimetableReadRequest(text)) {
       await _respondWithTimetableForRequest(text);
       _selectedImageBytes = null;
@@ -716,59 +730,132 @@ class WarRoomViewModel extends ChangeNotifier {
         }
       }
 
-      final userIntent = _inferUserIntent(text);
-      final requestedWeekday = _extractRequestedWeekday(text);
-      var executedActionCount = 0;
-
-      debugPrint("DEBUG_TRACE: Processing Batch Actions...");
+      // 5. Protocol Engine path: try to parse as v1 proposal
+      debugPrint("DEBUG_TRACE: Protocol Engine evaluation...");
       String? transactionPrompt;
-      // 5. Stage Orders (Batch) - fail-closed, explicit confirm required
-      if (aiResponse.actions.isNotEmpty) {
-        final bulkScheduleRequest = RegExp(r'\b(all|full|entire|whole|class|classes|timetable|weekly)\b')
-            .hasMatch(text.toLowerCase());
-        final maxActionsThisTurn = bulkScheduleRequest ? 12 : 4;
-        final stagedActions = <AIResponseAction>[];
-        final blockedActions = <String>[];
+      
+      // Try the new JSON protocol first
+      final proposal = _aiService.tryParseProposal(
+        aiResponse.response, // The raw text is in the response field for bridged responses
+      );
+      
+      if (proposal != null && proposal.actions.isNotEmpty) {
+        // Run through PolicyEngine
+        final existingEventIds = <String>{};
+        try {
+          final events = await _calendarService.syncEvents(maxResults: 20);
+          for (final e in events) {
+            if (e.id != null) existingEventIds.add(e.id!);
+          }
+        } catch (_) {}
 
-        for (final action in aiResponse.actions) {
-          if (action.type != 'none') {
-             if (!_isActionAllowed(action, userIntent)) {
-               blockedActions.add(action.type);
-               _addSystemStatus(
-                 "Action blocked by firewall: ${action.type}. Ask explicitly for scheduling/reminder edits to enable it.",
-                 persist: false,
-               );
-               continue;
-             }
+        final existingTimetableDays = _timetableService.slots
+            .map((s) => s.dayOfWeek)
+            .toSet();
 
-             if (!_isActionExecutable(action)) {
-               _addSystemStatus(
-                 "Action rejected: ${action.type} is missing required fields.",
-                 persist: false,
-               );
-               continue;
-             }
+        final context = PolicyContext(
+          now: DateTime.now(),
+          userId: 'local_user', // Single-user app for now
+          existingEventIds: existingEventIds,
+          existingTimetableDays: existingTimetableDays,
+          userHasCalendarAccess: _calendarService.isCalendarAuthed,
+        );
 
-             if (stagedActions.length >= maxActionsThisTurn) {
-               _addSystemStatus("Action limit reached for this turn. Ignoring extra actions.", persist: false);
-               break;
-             }
+        final decision = _policyEngine.evaluate(proposal, context);
 
-             stagedActions.add(action);
+        // Audit: log each decision
+        for (final d in decision.actionDecisions) {
+          if (d.isDenied) {
+            await _auditLogger.record(protocol_audit.AuditEvent.policyDeny(
+              action: d.action,
+              reason: d.reason ?? 'policy violation',
+            ));
+            await app_audit.AuditLogger.log(
+              eventType: d.action.type.value,
+              source: 'ai',
+              result: 'failed:${d.reason ?? 'policy violation'}',
+              inputSnippet: text,
+              aiIntent: proposal.intent.value,
+            );
           }
         }
 
-        if (stagedActions.isNotEmpty) {
-          _pendingActionPlan = _PendingActionPlan(
-            actions: stagedActions,
-            requestedWeekday: requestedWeekday,
-            sourceUserText: text,
+        // Split: auto-execute approved actions, stage pending ones
+        final autoExecute = decision.actionDecisions
+            .where((d) => d.isExecutable)
+            .toList();
+        final pending = decision.actionDecisions
+            .where((d) => d.needsConfirmation)
+            .toList();
+        final denied = decision.actionDecisions
+            .where((d) => d.isDenied)
+            .toList();
+
+        // Auto-execute safe actions immediately
+        if (autoExecute.isNotEmpty) {
+          final summary = await _executionEngine.execute(decision);
+          if (summary.successCount > 0) {
+            for (final d in autoExecute) {
+              await app_audit.AuditLogger.log(
+                eventType: d.action.type.value,
+                source: 'ai',
+                result: 'success',
+                inputSnippet: text,
+                aiIntent: proposal.intent.value,
+              );
+            }
+          }
+          if (summary.successCount > 0) {
+            _addSystemStatus(
+              "Executed ${summary.successCount} action${summary.successCount > 1 ? 's' : ''}.",
+              persist: false,
+            );
+          }
+          if (summary.failureCount > 0) {
+            _addSystemStatus(
+              "${summary.failureCount} action${summary.failureCount > 1 ? 's' : ''} failed.",
+              persist: false,
+            );
+          }
+        }
+
+        // Stage pending actions for user confirmation
+        if (pending.isNotEmpty) {
+          _pendingDecision = decision;
+          final labels = pending
+              .map((d) => _labelForAction(d.action))
+              .join('\n');
+          transactionPrompt = 'I\'ve prepared the following actions:\n$labels\n\nConfirm to execute, or cancel.';
+        }
+
+        // Report denied actions
+        for (final d in denied) {
+          _addSystemStatus(
+            "Action denied: ${d.action.type.value} — ${d.reason ?? 'policy violation'}",
+            persist: false,
           );
-          transactionPrompt = _buildActionConfirmationPrompt(stagedActions);
-        } else if (blockedActions.isNotEmpty) {
-          transactionPrompt = "I prepared no executable action from that request. Rephrase with explicit date, time, and event title.";
-        } else {
-          transactionPrompt = "I could not build an executable scheduling action from that response, so no calendar changes were made.";
+        }
+      } else {
+        // Legacy path: old AIResponse actions (XML fallback)
+        if (aiResponse.actions.isNotEmpty) {
+          final requestedWeekday = _extractRequestedWeekday(text);
+          final stagedActions = aiResponse.actions
+              .where((a) => a.type != 'none')
+              .toList();
+          if (stagedActions.isNotEmpty) {
+            // Fall back to legacy _executeOrder for XML-parsed actions
+            for (final action in stagedActions) {
+              await _executeOrder(
+                action,
+                requestedWeekday: requestedWeekday,
+                sourceUserText: text,
+              );
+            }
+            _addSystemStatus(
+              "Executed ${stagedActions.length} action${stagedActions.length > 1 ? 's' : ''} (legacy path).",
+              persist: false,
+            );
+          }
         }
       }
 
@@ -780,12 +867,6 @@ class WarRoomViewModel extends ChangeNotifier {
       
       // 7. Speak (with anti-repeat stabilization)
       var verbal = transactionPrompt ?? aiResponse.response;
-      if (_isHallucinatedScheduleMutationClaim(verbal, aiResponse.actions, executedActionCount)) {
-        final count = _timetableService.slots.length;
-        verbal = count == 0
-        ? 'No timetable changes were executed in that step. Your timetable is already empty.'
-        : 'No timetable changes were executed in that step. Your timetable still has $count slots.';
-      }
 
       final stabilized = _stabilizeAssistantResponse(verbal, text);
       _addMessage("VYOMA", stabilized);
@@ -988,22 +1069,7 @@ class WarRoomViewModel extends ChangeNotifier {
     _addMessage("VYOMA", "Done. Cleared your timetable and synced the change.");
   }
 
-  bool _isHallucinatedScheduleMutationClaim(
-    String verbal,
-    List<AIResponseAction> actions,
-    int executedActionCount,
-  ) {
-    if (executedActionCount > 0) return false;
 
-    final lower = verbal.toLowerCase();
-    final claimsMutation = RegExp(r'\b(cleared|cancelled|canceled|deleted|removed|rescheduled|updated|shifted|moved)\b').hasMatch(lower);
-    final scheduleContext = RegExp(r'\b(timetable|schedule|class|classes|event|calendar)\b').hasMatch(lower);
-
-    final hasExecutableAction = actions.any((a) => a.type != 'none');
-    if (hasExecutableAction) return false;
-
-    return claimsMutation && scheduleContext;
-  }
 
   Future<void> _handleTimetableDeleteRequest(String text) async {
     final requestedWeekday = _extractRequestedWeekday(text);
@@ -1306,80 +1372,6 @@ class WarRoomViewModel extends ChangeNotifier {
     return hasMetricWord && hasManipulationVerb;
   }
 
-  _UserIntent _inferUserIntent(String text) {
-    final lower = text.toLowerCase();
-    final schedulingConfirmation = _isSchedulingConfirmation(lower);
-
-    final scheduling =
-        RegExp(r'\b(schedule|plan|block|book|add|create|calendar|slot|class|classes|timetable)\b').hasMatch(lower) ||
-        schedulingConfirmation;
-    final reminder = RegExp(r'\b(remind|reminder|notify|nudge)\b').hasMatch(lower);
-    final timetable = RegExp(r'\b(timetable|class list|weekly schedule|classes|class)\b').hasMatch(lower);
-    final eventEdit = RegExp(r'\b(move|reschedule|delete|cancel event|change event|shift|edit)\b').hasMatch(lower);
-
-    return _UserIntent(
-      scheduling: scheduling,
-      reminder: reminder,
-      timetable: timetable,
-      eventEdit: eventEdit,
-      schedulingConfirmation: schedulingConfirmation,
-    );
-  }
-
-  bool _isSchedulingConfirmation(String lowerText) {
-    final confirmation = RegExp(
-      r'\b(do it|go ahead|yes|yep|yeah|schedule them|add them|do that|make it happen|please do)\b',
-    ).hasMatch(lowerText);
-    if (!confirmation) return false;
-
-    final recent = _messages.reversed.take(6);
-    for (final m in recent) {
-      if (m.sender != 'VYOMA') continue;
-      final t = m.text.toLowerCase();
-      if (RegExp(r'\b(schedule|scheduled|calendar|event|class|classes|timetable|reminder)\b').hasMatch(t)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  bool _isActionAllowed(AIResponseAction action, _UserIntent intent) {
-    switch (action.type) {
-      case 'create':
-        return intent.scheduling || intent.schedulingConfirmation;
-      case 'notify':
-        return intent.reminder || intent.scheduling;
-      case 'update_timetable':
-        return intent.timetable || intent.scheduling;
-      case 'move':
-      case 'delete':
-        return intent.eventEdit || intent.scheduling;
-      case 'none':
-        return true;
-      default:
-        return false;
-    }
-  }
-
-  bool _isActionExecutable(AIResponseAction action) {
-    switch (action.type) {
-      case 'create':
-        return action.startTime?.trim().isNotEmpty ?? false;
-      case 'move':
-        return (action.summary?.trim().isNotEmpty ?? false) && (action.startTime?.trim().isNotEmpty ?? false);
-      case 'delete':
-        return action.summary?.trim().isNotEmpty ?? false;
-      case 'update_timetable':
-        final hasSlots = action.slots != null && action.slots!.isNotEmpty;
-        final hasTargetedEdit = (action.summary?.trim().isNotEmpty ?? false) && (action.startTime?.trim().isNotEmpty ?? false);
-        return hasSlots || hasTargetedEdit;
-      case 'notify':
-        return (action.message?.trim().isNotEmpty ?? false) || (action.summary?.trim().isNotEmpty ?? false);
-      default:
-        return false;
-    }
-  }
-
   bool _isApprovalPhrase(String lowerText) {
     
     return RegExp(
@@ -1388,64 +1380,115 @@ class WarRoomViewModel extends ChangeNotifier {
   }
 
   bool _isDenialPhrase(String lowerText) {
-    return RegExp(r"\b(no|nope|deny|cancel|stop|don't|do not)\b").hasMatch(lowerText);
+    return RegExp(
+      r"\b(no|nope|deny|cancel|stop|don't|do not|forget it|never mind|nevermind|skip it|skip|ignore that|actually no|move on|leave it|drop it|abort)\b",
+    ).hasMatch(lowerText);
   }
 
-  String _summarizeActionForConfirmation(AIResponseAction action) {
-    final title = (action.summary ?? 'untitled').trim();
-    final time = action.startTime?.trim();
-    switch (action.type) {
-      case 'create':
-        return 'Create "$title"${time != null && time.isNotEmpty ? ' at $time' : ''}';
-      case 'move':
-        return 'Move "$title"${time != null && time.isNotEmpty ? ' to $time' : ''}';
-      case 'delete':
-        return 'Delete "$title"';
-      case 'update_timetable':
-        if (action.slots != null && action.slots!.isNotEmpty) {
-          return 'Update weekly timetable (${action.slots!.length} slots)';
-        }
-        return 'Update "$title"${time != null && time.isNotEmpty ? ' to $time' : ''}';
-      case 'notify':
-        return 'Send reminder "${(action.message ?? action.summary ?? 'message').trim()}"';
-      default:
-        return 'Action ${action.type}';
-    }
-  }
-
-  String _buildActionConfirmationPrompt(List<AIResponseAction> actions) {
-    final lines = actions
-        .asMap()
-        .entries
-        .map((e) => '${e.key + 1}. ${_summarizeActionForConfirmation(e.value)}')
-        .join('\n');
-    return 'I drafted the following actions:\n$lines\n\nReply "go ahead" to execute, or "no" to cancel.';
-  }
-
-  Future<void> _approvePendingActionPlan() async {
-    final plan = _pendingActionPlan;
-    if (plan == null) {
-      _addSystemStatus('No pending action plan to approve.', persist: false);
+  /// Execute all pending actions that were staged by the PolicyEngine.
+  /// Called from PendingActionCard's EXECUTE button or /approve command.
+  /// BUG 1 FIX: Only executes the needsConfirmation subset by upgrading
+  /// their verdicts to 'allow'. Prevents re-execution of already-executed actions.
+  Future<void> approvePendingDecision() async {
+    final decision = _pendingDecision;
+    if (decision == null) {
+      _addSystemStatus('No pending actions to approve.', persist: false);
       return;
     }
 
-    _pendingActionPlan = null;
-    var executed = 0;
-    for (final action in plan.actions) {
-      await _executeOrder(
-        action,
-        requestedWeekday: plan.requestedWeekday,
-        sourceUserText: plan.sourceUserText,
-      );
-      executed++;
+    _pendingDecision = null;
+    notifyListeners();
+
+    // Build a filtered decision containing ONLY the needsConfirmation actions,
+    // with their verdicts upgraded to 'allow' so ExecutionEngine.execute() runs them.
+    final confirmedActions = decision.actionDecisions
+        .where((d) => d.needsConfirmation)
+        .map((d) => ActionDecision(
+              action: d.action,
+              verdict: PolicyVerdict.allow,
+              reason: 'User confirmed',
+            ))
+        .toList();
+
+    if (confirmedActions.isEmpty) {
+      _addMessage('VYOMA', 'No actions were pending confirmation.');
+      return;
     }
 
-    _addMessage(
-      'VYOMA',
-      executed == 0
-          ? 'No actions were executed.'
-          : 'Executed $executed action${executed > 1 ? 's' : ''} successfully.',
+    final confirmedDecision = ProposalDecision(
+      proposal: decision.proposal,
+      actionDecisions: confirmedActions,
+      overallVerdict: PolicyVerdict.allow,
     );
+
+    try {
+      final summary = await _executionEngine.execute(confirmedDecision);
+      final msg = summary.successCount == 0
+          ? 'No actions were executed.'
+          : 'Executed ${summary.successCount} action${summary.successCount > 1 ? 's' : ''} successfully.';
+      _addMessage('VYOMA', msg);
+
+      // Log each confirmed action for audit trail
+      for (final d in confirmedActions) {
+        await _auditLogger.record(protocol_audit.AuditEvent.userConfirmed(action: d.action));
+        await app_audit.AuditLogger.log(
+          eventType: d.action.type.value,
+          source: 'user',
+          result: 'success',
+        );
+      }
+
+      if (summary.failureCount > 0) {
+        _addSystemStatus(
+          '${summary.failureCount} action${summary.failureCount > 1 ? 's' : ''} failed during execution.',
+          persist: false,
+        );
+      }
+    } catch (e) {
+      _addSystemError('Action execution', e);
+    }
+  }
+
+  /// Cancel all pending actions without executing.
+  /// Called from PendingActionCard's CANCEL button or /deny command.
+  void denyPendingDecision() {
+    final decision = _pendingDecision;
+    _pendingDecision = null;
+    _addMessage('VYOMA', 'Understood. No changes were made.');
+    if (decision != null) {
+      for (final d in decision.actionDecisions.where((d) => d.needsConfirmation)) {
+        app_audit.AuditLogger.log(
+          eventType: d.action.type.value,
+          source: 'user',
+          result: 'cancelled',
+        );
+      }
+    }
+    notifyListeners();
+  }
+
+  /// Human-readable label for a protocol action (used in PendingActionCard and confirmation prompts).
+  String _labelForAction(AIAction action) {
+    final title = action.title ?? 'Untitled';
+    switch (action.type) {
+      case AIActionType.calendarCreate:
+        final time = action.startTime != null
+            ? ' at ${action.startTime!.hour}:${action.startTime!.minute.toString().padLeft(2, '0')}'
+            : '';
+        return 'Create "$title"$time';
+      case AIActionType.calendarMove:
+        return 'Move "$title"';
+      case AIActionType.calendarDelete:
+        return 'Delete "$title"';
+      case AIActionType.timetableReplaceDay:
+        return 'Update ${action.weekday ?? "day"} timetable';
+      case AIActionType.timetableClearDay:
+        return 'Clear ${action.weekday ?? "day"} timetable';
+      case AIActionType.reminderCreate:
+        return 'Remind: "$title"';
+      case AIActionType.metricsIncrement:
+        return 'Update ${action.scope ?? "metrics"}';
+    }
   }
 
   bool _isPmCorrectionRequest(String? text) {
@@ -1804,14 +1847,16 @@ class WarRoomViewModel extends ChangeNotifier {
 
     _addMessage("USER", text);
 
-    if (_pendingActionPlan != null) {
+    if (_pendingDecision != null) {
       if (cmd == '/deny') {
-        _pendingActionPlan = null;
-        _addSystemStatus("Pending action plan denied.", persist: false);
+        denyPendingDecision();
         return true;
       }
 
-      unawaited(_approvePendingActionPlan());
+      // BUG 5 FIX: Don't use unawaited — surface errors properly.
+      approvePendingDecision().catchError((e) {
+        _addSystemError('/approve execution', e);
+      });
       return true;
     }
 

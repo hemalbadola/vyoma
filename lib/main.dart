@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart'; // Add font import
+import 'ui/vyoma_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'core/auth_manager.dart';
 import 'core/calendar_service.dart';
@@ -21,11 +22,13 @@ import 'core/telemetry_service.dart';
 import 'ui/war_room_viewmodel.dart';
 import 'ui/home_screen.dart'; 
 import 'ui/onboarding_screen.dart';
+import 'tutorial/tutorial_controller.dart';
+import 'tutorial/tutorial_overlay.dart';
 
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'firebase_options.dart';
+import 'services/session_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,16 +41,10 @@ void main() async {
     debugPrint("Firebase init failed: $e");
   }
 
-  if (!kReleaseMode) {
-    try {
-      await dotenv.load(fileName: '.env.local');
-    } catch (_) {
-      try {
-        await dotenv.load(fileName: '.env');
-      } catch (e) {
-        debugPrint('Failed to load local env file: $e');
-      }
-    }
+  try {
+    await SessionManager.enforce();
+  } catch (e) {
+    debugPrint('Session cleanup failed: $e');
   }
 
   ErrorWidget.builder = (FlutterErrorDetails details) {
@@ -182,6 +179,12 @@ class VyomaApp extends StatelessWidget {
         ),
 
         // 3. ViewModels (Dependent on Services)
+        ChangeNotifierProvider<TutorialController>(
+          create: (_) {
+            debugPrint('PROVIDER_DEBUG: Creating TutorialController...');
+            return TutorialController();
+          },
+        ),
         ChangeNotifierProxyProvider6<CalendarService, AIService, TimetableService, NotificationService, FriendService, AccountabilityService, WarRoomViewModel>(
           create: (context) {
             debugPrint('PROVIDER_DEBUG: Creating WarRoomViewModel...');
@@ -218,21 +221,17 @@ class VyomaApp extends StatelessWidget {
           return MaterialApp(
             title: 'Vyoma',
             debugShowCheckedModeBanner: false,
-            theme: ThemeData.dark().copyWith(
-              scaffoldBackgroundColor: const Color(0xFF0A0A0F),
-              colorScheme: const ColorScheme.dark(
-                primary: Color(0xFF7C3AED),      // Deep violet
-                secondary: Color(0xFF06B6D4),    // Cyan accent
-                tertiary: Color(0xFFA855F7),     // Light violet
-                surface: Color(0xFF0F0F1A),      // Deep space black
-                onSurface: Color(0xFFE2E8F0),    // Light gray text
-              ),
-              textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme),
-            ),
+            theme: VyomaTheme.dark,
             builder: (context, child) {
               return Stack(
                 children: [
                   if (child != null) child,
+                  Consumer<TutorialController>(
+                    builder: (context, tutorial, _) {
+                      if (!tutorial.isActive) return const SizedBox.shrink();
+                      return TutorialOverlay(controller: tutorial);
+                    },
+                  ),
                   
                   // Global Debug Status Panel
                   if (kDebugMode)
