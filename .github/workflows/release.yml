@@ -44,7 +44,7 @@ jobs:
         run: flutter pub get
 
       - name: Build App
-        run: flutter build macos --release --no-codesign
+        run: CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO flutter build macos --release
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
