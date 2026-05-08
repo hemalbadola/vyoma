@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import '../vyoma_theme.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -16,9 +17,6 @@ class CommandDock extends StatelessWidget {
     required this.onCommand
   });
 
-  // High Contrast Palette
-  static const kCardBg = Color(0xFF101114);
-  static const kBorder = Color(0xFF2A2A2A);
 
   @override
   Widget build(BuildContext context) {
@@ -42,9 +40,9 @@ class CommandDock extends StatelessWidget {
                     vertical: isCompact ? 8 : 10,
                   ),
                   decoration: BoxDecoration(
-                    color: kCardBg.withValues(alpha: 0.78),
+                    color: VyomaColors.bgCard.withValues(alpha: 0.78),
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: kBorder.withValues(alpha: 0.95), width: 0.85),
+                    border: Border.all(color: VyomaColors.borderSubtle.withValues(alpha: 0.95), width: 0.85),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withValues(alpha: 0.6),

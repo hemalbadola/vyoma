@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import '../vyoma_theme.dart';
 
 class GlassCard extends StatelessWidget {
   final Widget child;
@@ -31,16 +32,12 @@ class GlassCard extends StatelessWidget {
     this.glowColor,
   });
 
-  // High Contrast palette
-  static const kCardBg = Color(0xFF121212);
-  static const kBorder = Color(0xFF2A2A2A);
-  static const kEmerald = Color(0xFF10B981);
 
   @override
   Widget build(BuildContext context) {
-    final bgColor = backgroundColor ?? kCardBg;
-    final border = borderColor ?? kBorder;
-    final glow = glowColor ?? kEmerald;
+    final bgColor = backgroundColor ?? VyomaColors.bgCard;
+    final border = borderColor ?? VyomaColors.borderSubtle;
+    final glow = glowColor ?? VyomaColors.accent;
     
     Widget card = Container(
       width: width,
