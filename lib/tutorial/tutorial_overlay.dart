@@ -126,7 +126,7 @@ class _TutorialOverlayState extends State<TutorialOverlay> with TickerProviderSt
           final pivot = _arrowPivot(hole, step.arrowDirection);
 
           final cardWidth = math.min(340.0, screen.width - 32);
-          const cardEstimatedHeight = 200.0;
+          const cardEstimatedHeight = 280.0;
           double cardLeft = (screen.width - cardWidth) / 2;
           double cardTop = screen.height - padding.bottom - cardEstimatedHeight - 28;
 
@@ -270,10 +270,14 @@ class _ArrowPainter extends CustomPainter {
     switch (dir) {
       case TutorialArrowDirection.top:
       case TutorialArrowDirection.bottom:
-        return Offset(mid.dx + (a.dy - b.dy) * 0.15, mid.dy);
+        final delta = a.dy - b.dy;
+        final magnitude = delta.abs() < 40 ? (delta.isNegative ? -40.0 : 40.0) : delta;
+        return Offset(mid.dx + magnitude * 0.3, mid.dy);
       case TutorialArrowDirection.left:
       case TutorialArrowDirection.right:
-        return Offset(mid.dx, mid.dy + (a.dx - b.dx) * 0.15);
+        final delta = a.dx - b.dx;
+        final magnitude = delta.abs() < 40 ? (delta.isNegative ? -40.0 : 40.0) : delta;
+        return Offset(mid.dx, mid.dy + magnitude * 0.3);
     }
   }
 
