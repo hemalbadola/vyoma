@@ -2,6 +2,8 @@ name: Build and Release
 
 on:
   push:
+    branches: [ "main", "feat/**" ]
+  pull_request:
     branches: [ "main" ]
   workflow_dispatch:
     inputs:
@@ -27,9 +29,10 @@ jobs:
       - name: Prepare Secrets Stub
         shell: bash
         run: |
-          if [ ! -f lib/core/secrets.dart ]; then
-            cp lib/core/secrets.dart.example lib/core/secrets.dart
+          if [ ! -f lib/core/secrets.dart.example ]; then
+            echo "ERROR: secrets.dart.example missing from repo" && exit 1
           fi
+          cp lib/core/secrets.dart.example lib/core/secrets.dart
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -60,9 +63,10 @@ jobs:
       - name: Prepare Secrets Stub
         shell: bash
         run: |
-          if [ ! -f lib/core/secrets.dart ]; then
-            cp lib/core/secrets.dart.example lib/core/secrets.dart
+          if [ ! -f lib/core/secrets.dart.example ]; then
+            echo "ERROR: secrets.dart.example missing from repo" && exit 1
           fi
+          cp lib/core/secrets.dart.example lib/core/secrets.dart
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
