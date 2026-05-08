@@ -177,6 +177,7 @@ class WarRoomViewModel extends ChangeNotifier {
     _chronosService = ChronosService(_aiService.memory);
 
     // Wire Protocol Engine
+    // TODO: replace InMemoryAuditLogger with PersistentAuditLogger before production
     _auditLogger = InMemoryAuditLogger();
     _policyEngine = VyomaPolicyEngine();
     _executionEngine = VyomaExecutionEngine(
@@ -519,14 +520,25 @@ class WarRoomViewModel extends ChangeNotifier {
         return;
       }
 
-      _addMessage(
-        "VYOMA",
-        "I still have a pending action plan. Reply \"go ahead\" to execute it, or \"no\" to cancel.",
-      );
-      _selectedImageBytes = null;
-      return;
+      // BUG 2 FIX: If user sends a substantive message (>12 chars) that isn't
+      // approval or denial, force-reset the pending decision and proceed to
+      // normal AI flow. This prevents users from being permanently locked.
+      if (lowerInput.length > 12) {
+        denyPendingDecision();
+        // Fall through to normal processing — don't return
+      } else {
+        _addMessage(
+          "VYOMA",
+          "I still have a pending action plan. Reply \"go ahead\" to execute it, or \"no\" to cancel.",
+        );
+        _selectedImageBytes = null;
+        return;
+      }
     }
 
+    // LEGACY: These domain-specific handlers bypass the protocol engine.
+    // They handle reads/deletes without an AI call (faster UX).
+    // Remove when protocol engine handles all intents natively.
     if (_isTimetableReadRequest(text)) {
       await _respondWithTimetableForRequest(text);
       _selectedImageBytes = null;
@@ -745,7 +757,7 @@ class WarRoomViewModel extends ChangeNotifier {
           userId: 'local_user', // Single-user app for now
           existingEventIds: existingEventIds,
           existingTimetableDays: existingTimetableDays,
-          userHasCalendarAccess: existingEventIds.isNotEmpty,
+          userHasCalendarAccess: _calendarService.isCalendarAuthed,
         );
 
         final decision = _policyEngine.evaluate(proposal, context);
@@ -1349,11 +1361,15 @@ class WarRoomViewModel extends ChangeNotifier {
   }
 
   bool _isDenialPhrase(String lowerText) {
-    return RegExp(r"\b(no|nope|deny|cancel|stop|don't|do not)\b").hasMatch(lowerText);
+    return RegExp(
+      r"\b(no|nope|deny|cancel|stop|don't|do not|forget it|never mind|nevermind|skip it|skip|ignore that|actually no|move on|leave it|drop it|abort)\b",
+    ).hasMatch(lowerText);
   }
 
   /// Execute all pending actions that were staged by the PolicyEngine.
   /// Called from PendingActionCard's EXECUTE button or /approve command.
+  /// BUG 1 FIX: Only executes the needsConfirmation subset by upgrading
+  /// their verdicts to 'allow'. Prevents re-execution of already-executed actions.
   Future<void> approvePendingDecision() async {
     final decision = _pendingDecision;
     if (decision == null) {
@@ -1364,12 +1380,39 @@ class WarRoomViewModel extends ChangeNotifier {
     _pendingDecision = null;
     notifyListeners();
 
+    // Build a filtered decision containing ONLY the needsConfirmation actions,
+    // with their verdicts upgraded to 'allow' so ExecutionEngine.execute() runs them.
+    final confirmedActions = decision.actionDecisions
+        .where((d) => d.needsConfirmation)
+        .map((d) => ActionDecision(
+              action: d.action,
+              verdict: PolicyVerdict.allow,
+              reason: 'User confirmed',
+            ))
+        .toList();
+
+    if (confirmedActions.isEmpty) {
+      _addMessage('VYOMA', 'No actions were pending confirmation.');
+      return;
+    }
+
+    final confirmedDecision = ProposalDecision(
+      proposal: decision.proposal,
+      actionDecisions: confirmedActions,
+      overallVerdict: PolicyVerdict.allow,
+    );
+
     try {
-      final summary = await _executionEngine.execute(decision);
+      final summary = await _executionEngine.execute(confirmedDecision);
       final msg = summary.successCount == 0
           ? 'No actions were executed.'
           : 'Executed ${summary.successCount} action${summary.successCount > 1 ? 's' : ''} successfully.';
       _addMessage('VYOMA', msg);
+
+      // Log each confirmed action for audit trail
+      for (final d in confirmedActions) {
+        await _auditLogger.record(AuditEvent.userConfirmed(action: d.action));
+      }
 
       if (summary.failureCount > 0) {
         _addSystemStatus(
@@ -1776,7 +1819,10 @@ class WarRoomViewModel extends ChangeNotifier {
         return true;
       }
 
-      unawaited(approvePendingDecision());
+      // BUG 5 FIX: Don't use unawaited — surface errors properly.
+      approvePendingDecision().catchError((e) {
+        _addSystemError('/approve execution', e);
+      });
       return true;
     }
 
