@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart'; // Add font import
+import 'ui/theme/vyoma_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'core/auth_manager.dart';
 import 'core/calendar_service.dart';
@@ -218,17 +219,7 @@ class VyomaApp extends StatelessWidget {
           return MaterialApp(
             title: 'Vyoma',
             debugShowCheckedModeBanner: false,
-            theme: ThemeData.dark().copyWith(
-              scaffoldBackgroundColor: const Color(0xFF0A0A0F),
-              colorScheme: const ColorScheme.dark(
-                primary: Color(0xFF7C3AED),      // Deep violet
-                secondary: Color(0xFF06B6D4),    // Cyan accent
-                tertiary: Color(0xFFA855F7),     // Light violet
-                surface: Color(0xFF0F0F1A),      // Deep space black
-                onSurface: Color(0xFFE2E8F0),    // Light gray text
-              ),
-              textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme),
-            ),
+            theme: VyomaTheme.dark,
             builder: (context, child) {
               return Stack(
                 children: [
