@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/telemetry_service.dart';
+import '../../tutorial/tutorial_controller.dart';
 import '../widgets/glass_card.dart';
 
 /// Simplified Preferences Screen — manages display and notification settings.
@@ -87,6 +89,59 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                       'Vyoma now responds only when you initiate a conversation.',
                       style: GoogleFonts.outfit(
                           color: Colors.white54, fontSize: 13, height: 1.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 24),
+            _header('🎓 ONBOARDING'),
+            GlassCard(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  const Icon(Icons.school_outlined, color: Color(0xFF10B981), size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Replay App Tutorial',
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Walk through how Vyoma works again',
+                          style: GoogleFonts.outfit(
+                            color: Colors.white54,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () async {
+                      final tutorialController = context.read<TutorialController>();
+                      final navigator = Navigator.of(context);
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.remove(TutorialController.prefKeyCompleted);
+                      if (!mounted) return;
+                      tutorialController.start();
+                      if (navigator.canPop()) {
+                        navigator.pop();
+                      }
+                    },
+                    child: const Text(
+                      'REPLAY',
+                      style: TextStyle(color: Color(0xFF10B981)),
                     ),
                   ),
                 ],
