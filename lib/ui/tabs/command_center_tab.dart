@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../theme/vyoma_colors.dart';
+import '../vyoma_theme.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -15,9 +15,10 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter/services.dart';
 import '../../ui/widgets/chat_sheet.dart';
 import '../../ui/screens/memory_vault_screen.dart';
+import '../../ui/screens/timetable_screen.dart';
 
-class MissionTab extends StatelessWidget {
-  const MissionTab({super.key});
+class CommandCenterTab extends StatelessWidget {
+  const CommandCenterTab({super.key});
 
 
   // --- Energy State Derivation ---
@@ -32,7 +33,7 @@ class MissionTab extends StatelessWidget {
         level: 'low',
         label: 'Rest mode',
         suggestion: 'You should be sleeping. Rest is the best productivity hack.',
-        gradient: [const Color(0xFF1E1B4B), const Color(0xFF0F0D2E)],
+        gradient: [const Color(0xFF051A14), const Color(0xFF030F0A)],
         icon: Icons.bedtime_rounded,
       );
     }
@@ -41,7 +42,7 @@ class MissionTab extends StatelessWidget {
         level: 'rising',
         label: 'Morning warmup',
         suggestion: 'Your brain is waking up — light tasks first, deep work after 10.',
-        gradient: [const Color(0xFF1C1917), const Color(0xFF1A1307)],
+        gradient: [const Color(0xFF0A1E18), const Color(0xFF081510)],
         icon: Icons.wb_twilight_rounded,
       );
     }
@@ -52,7 +53,7 @@ class MissionTab extends StatelessWidget {
         suggestion: focusHours > 0.5
             ? 'You\'re locked in — ${focusHours.toStringAsFixed(1)}h focused today. Keep going.'
             : 'This is your best window for deep work. Start a focus session now.',
-        gradient: [const Color(0xFF052E16), const Color(0xFF022C22)],
+        gradient: [const Color(0xFF052E16), const Color(0xFF042818)],
         icon: Icons.bolt_rounded,
       );
     }
@@ -61,7 +62,7 @@ class MissionTab extends StatelessWidget {
         level: 'dip',
         label: 'Post-lunch dip',
         suggestion: 'Energy naturally dips now. Take a walk, then tackle lighter tasks.',
-        gradient: [const Color(0xFF1C1917), const Color(0xFF171310)],
+        gradient: [const Color(0xFF0F1E18), const Color(0xFF0A1510)],
         icon: Icons.coffee_rounded,
       );
     }
@@ -72,7 +73,7 @@ class MissionTab extends StatelessWidget {
         suggestion: focusHours > 2
             ? 'Solid ${focusHours.toStringAsFixed(1)}h today. One more sprint before evening?'
             : 'Afternoon energy is back. Good time for creative or review work.',
-        gradient: [const Color(0xFF0C1220), const Color(0xFF0A0E18)],
+        gradient: [const Color(0xFF0A1A15), const Color(0xFF081210)],
         icon: Icons.trending_up_rounded,
       );
     }
@@ -81,7 +82,7 @@ class MissionTab extends StatelessWidget {
         level: 'winding',
         label: 'Evening wind-down',
         suggestion: 'Start wrapping up. Journal your wins and plan tomorrow.',
-        gradient: [const Color(0xFF1A1020), const Color(0xFF120C18)],
+        gradient: [const Color(0xFF0D1A16), const Color(0xFF0A1410)],
         icon: Icons.nights_stay_rounded,
       );
     }
@@ -89,7 +90,7 @@ class MissionTab extends StatelessWidget {
       level: 'low',
       label: 'Night mode',
       suggestion: 'Time to rest. Your sleep quality affects tomorrow\'s focus.',
-      gradient: [const Color(0xFF0D0D1A), const Color(0xFF080812)],
+      gradient: [const Color(0xFF071210), const Color(0xFF050A08)],
       icon: Icons.dark_mode_rounded,
     );
   }
@@ -339,34 +340,90 @@ class MissionTab extends StatelessWidget {
     ).animate().fadeIn(duration: 500.ms, delay: 100.ms).slideY(begin: 0.05);
   }
 
-  // --- Next Class from Timetable ---
+  // --- Schedule & Next Class ---
   Widget _buildNextClass(BuildContext context, TimetableService timetableService) {
     final slots = timetableService.slots;
-    if (slots.isEmpty) return const SizedBox.shrink();
-
     final now = DateTime.now();
-    final todaySlots = slots.where((s) {
-      final weekday = _dayNameToWeekday(s.dayOfWeek);
-      return weekday == now.weekday;
-    }).toList()
-      ..sort((a, b) => a.startTime.compareTo(b.startTime));
-
-    if (todaySlots.isEmpty) return const SizedBox.shrink();
-
-    // Find next upcoming slot
+    
     TimetableSlot? nextSlot;
-    for (final slot in todaySlots) {
-      final parts = slot.startTime.split(':');
-      final slotTime = DateTime(now.year, now.month, now.day,
-          int.parse(parts[0]), int.parse(parts[1]));
-      if (slotTime.isAfter(now)) {
-        nextSlot = slot;
-        break;
+    if (slots.isNotEmpty) {
+      final todaySlots = slots.where((s) {
+        final weekday = _dayNameToWeekday(s.dayOfWeek);
+        return weekday == now.weekday;
+      }).toList()
+        ..sort((a, b) => a.startTime.compareTo(b.startTime));
+
+      for (final slot in todaySlots) {
+        final parts = slot.startTime.split(':');
+        final slotTime = DateTime(now.year, now.month, now.day,
+            int.parse(parts[0]), int.parse(parts[1]));
+        if (slotTime.isAfter(now)) {
+          nextSlot = slot;
+          break;
+        }
       }
     }
 
-    if (nextSlot == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'YOUR SCHEDULE',
+                style: GoogleFonts.jetBrainsMono(
+                  color: VyomaColors.accent,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.5,
+                ),
+              ),
+              MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const TimetableScreen()
+                      )
+                    );
+                  },
+                  child: Row(
+                    children: [
+                      Text(
+                        'View Grid',
+                        style: GoogleFonts.inter(
+                          color: VyomaColors.textMuted, 
+                          fontSize: 11, 
+                          fontWeight: FontWeight.w500
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.arrow_forward_rounded, color: VyomaColors.textMuted, size: 14),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (nextSlot == null)
+            Text(
+              "Your schedule is clear for the rest of the day.",
+              style: GoogleFonts.inter(color: VyomaColors.textMuted.withValues(alpha: 0.8), fontSize: 13),
+            )
+          else
+            _buildNextSlotCard(nextSlot, now),
+        ],
+      ),
+    ).animate().fadeIn(duration: 400.ms, delay: 150.ms).slideX(begin: 0.03);
+  }
 
+  Widget _buildNextSlotCard(TimetableSlot nextSlot, DateTime now) {
     final startParts = nextSlot.startTime.split(':');
     final startTime = DateTime(now.year, now.month, now.day,
         int.parse(startParts[0]), int.parse(startParts[1]));
@@ -377,80 +434,77 @@ class MissionTab extends StatelessWidget {
 
     final isImminent = minsUntil <= 15;
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: isImminent ? VyomaColors.warning.withValues(alpha: 0.06) : VyomaColors.bgCard,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isImminent ? VyomaColors.warning.withValues(alpha: 0.25) : VyomaColors.borderSubtle,
-            width: isImminent ? 1 : 0.5,
-          ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: isImminent
-                    ? VyomaColors.warning.withValues(alpha: 0.12)
-                    : VyomaColors.accent.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                isImminent ? Icons.directions_run_rounded : Icons.school_rounded,
-                color: isImminent ? VyomaColors.warning : VyomaColors.accentMuted,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    nextSlot.subject,
-                    style: GoogleFonts.inter(
-                      color: VyomaColors.textPrimary,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    '${nextSlot.venue} · ${nextSlot.startTime}–${nextSlot.endTime}',
-                    style: GoogleFonts.inter(color: VyomaColors.textMuted, fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: isImminent
-                    ? VyomaColors.warning.withValues(alpha: 0.15)
-                    : VyomaColors.accent.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                'in $countdown',
-                style: GoogleFonts.jetBrainsMono(
-                  color: isImminent ? VyomaColors.warningLight : VyomaColors.accentBright,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isImminent ? VyomaColors.warning.withValues(alpha: 0.06) : VyomaColors.bgCard,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isImminent ? VyomaColors.warning.withValues(alpha: 0.25) : VyomaColors.borderSubtle,
+          width: isImminent ? 1 : 0.5,
         ),
       ),
-    ).animate().fadeIn(duration: 400.ms, delay: 150.ms).slideX(begin: 0.03);
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: isImminent
+                  ? VyomaColors.warning.withValues(alpha: 0.12)
+                  : VyomaColors.accent.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              isImminent ? Icons.directions_run_rounded : Icons.school_rounded,
+              color: isImminent ? VyomaColors.warning : VyomaColors.accentDeep,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  nextSlot.subject,
+                  style: GoogleFonts.inter(
+                    color: VyomaColors.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${nextSlot.venue} · ${nextSlot.startTime}–${nextSlot.endTime}',
+                  style: GoogleFonts.inter(color: VyomaColors.textMuted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: isImminent
+                  ? VyomaColors.warning.withValues(alpha: 0.15)
+                  : VyomaColors.accent.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              'in $countdown',
+              style: GoogleFonts.jetBrainsMono(
+                color: isImminent ? VyomaColors.warningLight : VyomaColors.accentBright,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // --- Task Briefing (Carryover + Due Today) ---
@@ -856,7 +910,7 @@ class MissionTab extends StatelessWidget {
               color: VyomaColors.accent.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(Icons.calendar_today_rounded, color: VyomaColors.accentMuted, size: 18),
+            child: Icon(Icons.calendar_today_rounded, color: VyomaColors.accentDeep, size: 18),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -1000,7 +1054,7 @@ class MissionTab extends StatelessWidget {
                   color: VyomaColors.accent.withValues(alpha: 0.06),
                   borderRadius: BorderRadius.circular(7),
                 ),
-                child: Icon(Icons.lightbulb_outline_rounded, color: VyomaColors.accentMuted, size: 14),
+                child: Icon(Icons.lightbulb_outline_rounded, color: VyomaColors.accentDeep, size: 14),
               ),
               const SizedBox(width: 12),
               Expanded(
