@@ -46,6 +46,10 @@ class CalendarService {
 
   CalendarService(this._authManager);
 
+  /// Whether Google Calendar OAuth is currently active.
+  /// True if the calendar API client has been initialized successfully.
+  bool get isCalendarAuthed => _calendarApi != null;
+
   /// Initializes the Calendar API client if not already done.
   /// Has cooldown + concurrency guard to prevent sign-in popup spam.
   Future<void> _ensureInitialized() async {
