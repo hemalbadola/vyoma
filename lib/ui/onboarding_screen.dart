@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:vyoma/agent_debug_log.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,6 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/memory_service.dart';
 import '../core/permission_manager.dart';
 import '../core/calendar_service.dart';
+import '../core/theme/app_theme.dart';
+import '../core/widgets/vy_logo.dart';
 import 'home_screen.dart';
 
 class OnboardingScreen extends StatelessWidget {
@@ -189,7 +190,7 @@ class _ArrivalStepState extends State<_ArrivalStep> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const _LogoPulse(size: 220, assetPath: 'vyoma-horizontal-lockup.svg'),
+            const _LogoPulse(size: 220),
             const SizedBox(height: 24),
             AnimatedOpacity(
               duration: const Duration(milliseconds: 350),
@@ -727,11 +728,11 @@ class _ChoiceChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: selected ? const Color(0xFF10B981) : const Color(0xFF111317),
+          color: selected ? AppColors.gold : AppColors.surface1,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xFF2B313B)),
+          border: Border.all(color: AppColors.border),
         ),
-        child: Text(label, style: GoogleFonts.inter(color: selected ? Colors.black : Colors.white)),
+        child: Text(label, style: GoogleFonts.inter(color: selected ? AppColors.background : AppColors.textPrimary)),
       ),
     );
   }
@@ -750,13 +751,13 @@ class _PrimaryButton extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
         decoration: BoxDecoration(
-          color: const Color(0xFF10B981),
+          color: AppColors.gold,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Text(
           label,
           style: GoogleFonts.inter(
-            color: Colors.black,
+            color: AppColors.background,
             fontSize: 13,
             fontWeight: FontWeight.w700,
           ),
@@ -896,9 +897,8 @@ class _VyomaPrompt extends StatelessWidget {
 
 class _LogoPulse extends StatefulWidget {
   final double size;
-  final String assetPath;
 
-  const _LogoPulse({required this.size, this.assetPath = 'vyoma-icon-192.svg'});
+  const _LogoPulse({required this.size});
 
   @override
   State<_LogoPulse> createState() => _LogoPulseState();
@@ -923,24 +923,18 @@ class _LogoPulseState extends State<_LogoPulse> with SingleTickerProviderStateMi
   Widget build(BuildContext context) {
     return FadeTransition(
       opacity: Tween<double>(begin: 0.45, end: 1).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut)),
-      child: _VyomaLogo(size: widget.size, assetPath: widget.assetPath),
+      child: _VyomaLogo(size: widget.size),
     );
   }
 }
 
 class _VyomaLogo extends StatelessWidget {
   final double size;
-  final String assetPath;
 
-  const _VyomaLogo({required this.size, this.assetPath = 'vyoma-icon-192.svg'});
+  const _VyomaLogo({required this.size});
 
   @override
   Widget build(BuildContext context) {
-    return SvgPicture.asset(
-      assetPath,
-      width: size,
-      height: size,
-      fit: BoxFit.contain,
-    );
+    return VyMark(size: size);
   }
 }

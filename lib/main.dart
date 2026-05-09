@@ -2,16 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:vyoma/agent_debug_log.dart';
 import 'package:provider/provider.dart';
-import 'package:google_fonts/google_fonts.dart'; // Add font import
+import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'ui/vyoma_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'core/auth_manager.dart';
 import 'core/calendar_service.dart';
 import 'core/ai_service.dart';
-import 'core/memory_service.dart'; 
+import 'core/memory_service.dart';
 import 'core/timetable_service.dart'; // Added
 import 'core/task_service.dart';
+import 'core/services/daily_stats_store.dart';
+import 'core/services/focus_ranking_service.dart';
 import 'dart:async';
 import 'package:app_links/app_links.dart';
 import 'core/notification_service.dart';
@@ -19,10 +20,17 @@ import 'core/user_service.dart';
 import 'core/friend_service.dart';
 import 'core/cofocus_service.dart';
 import 'core/accountability_service.dart';
+import 'features/anti_goals/domain/anti_goals_service.dart';
+import 'features/bindu_moment/domain/agitation_detector.dart';
+import 'features/council/domain/council_service.dart';
+import 'features/dharma_map/domain/dharma_map_service.dart';
+import 'features/identity/domain/identity_anchor_service.dart';
+import 'features/mirror/domain/mirror_session_service.dart';
+import 'features/witness/domain/witness_service.dart';
 import 'core/ping_service.dart';
 import 'core/telemetry_service.dart';
 import 'ui/war_room_viewmodel.dart';
-import 'ui/home_screen.dart'; 
+import 'ui/home_screen.dart';
 import 'ui/onboarding_screen.dart';
 import 'ui/screens/login_screen.dart';
 import 'ui/screens/profile_setup_screen.dart';
@@ -33,10 +41,18 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'firebase_options.dart';
 import 'services/session_manager.dart';
+import 'core/theme/vyoma_theme.dart';
+import 'core/theme/vyoma_tokens.dart';
+import 'core/widgets/vy_loader.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
+
+const bool _kEnableTutorialOverlay = false;
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  
+  final WidgetsBinding widgetsBinding =
+      WidgetsFlutterBinding.ensureInitialized();
+  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
+
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
@@ -51,6 +67,8 @@ void main() async {
     debugPrint('Session cleanup failed: $e');
   }
 
+  FlutterNativeSplash.remove();
+
   ErrorWidget.builder = (FlutterErrorDetails details) {
     return Material(
       color: Colors.deepPurple,
@@ -60,13 +78,35 @@ void main() async {
           child: SingleChildScrollView(
             child: Text(
               "FLUTTER ERROR:\n${details.exception}\n\nStack:\n${details.stack}",
-              style: const TextStyle(color: Colors.white, fontSize: 14, fontFamily: 'Courier'),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontFamily: 'Courier',
+              ),
               textAlign: TextAlign.left,
             ),
           ),
         ),
       ),
     );
+  };
+
+  final originalOnError = FlutterError.onError;
+  FlutterError.onError = (FlutterErrorDetails details) {
+    final text = details.exceptionAsString();
+    if (text.contains(
+      'A KeyDownEvent is dispatched, but the state shows that the physical key is already pressed',
+    )) {
+      debugPrint(
+        'KEYBOARD_WARNING: Ignoring duplicate macOS KeyDown event assertion.',
+      );
+      return;
+    }
+    if (originalOnError != null) {
+      originalOnError(details);
+    } else {
+      FlutterError.presentError(details);
+    }
   };
   runApp(const VyomaApp());
 }
@@ -87,7 +127,7 @@ class VyomaApp extends StatelessWidget {
             return a;
           },
         ),
-        
+
         // 2. Services (Dependent on Auth or Standalone)
         ChangeNotifierProvider<MemoryService>(
           create: (_) {
@@ -115,6 +155,48 @@ class VyomaApp extends StatelessWidget {
             return CoFocusService();
           },
         ),
+        Provider<WitnessService>(
+          create: (_) {
+            debugPrint('PROVIDER_DEBUG: Creating WitnessService...');
+            return WitnessService();
+          },
+        ),
+        ChangeNotifierProvider<IdentityAnchorService>(
+          create: (_) {
+            debugPrint('PROVIDER_DEBUG: Creating IdentityAnchorService...');
+            return IdentityAnchorService()..init();
+          },
+        ),
+        ChangeNotifierProvider<AgitationDetector>(
+          create: (_) {
+            debugPrint('PROVIDER_DEBUG: Creating AgitationDetector...');
+            return AgitationDetector();
+          },
+        ),
+        Provider<MirrorSessionService>(
+          create: (_) {
+            debugPrint('PROVIDER_DEBUG: Creating MirrorSessionService...');
+            return MirrorSessionService();
+          },
+        ),
+        ChangeNotifierProvider<DharmaMapService>(
+          create: (_) {
+            debugPrint('PROVIDER_DEBUG: Creating DharmaMapService...');
+            return DharmaMapService()..init();
+          },
+        ),
+        ChangeNotifierProvider<AntiGoalsService>(
+          create: (_) {
+            debugPrint('PROVIDER_DEBUG: Creating AntiGoalsService...');
+            return AntiGoalsService()..init();
+          },
+        ),
+        Provider<CouncilService>(
+          create: (_) {
+            debugPrint('PROVIDER_DEBUG: Creating CouncilService...');
+            return CouncilService();
+          },
+        ),
         Provider<AccountabilityService>(
           create: (_) {
             debugPrint('PROVIDER_DEBUG: Creating AccountabilityService...');
@@ -122,12 +204,14 @@ class VyomaApp extends StatelessWidget {
           },
         ),
         ChangeNotifierProvider<AIService>(
-           create: (context) {
-             debugPrint('PROVIDER_DEBUG: Creating AIService...');
-             final ai = AIService(Provider.of<MemoryService>(context, listen: false));
-             debugPrint('PROVIDER_DEBUG: AIService CREATED OK');
-             return ai;
-           },
+          create: (context) {
+            debugPrint('PROVIDER_DEBUG: Creating AIService...');
+            final ai = AIService(
+              Provider.of<MemoryService>(context, listen: false),
+            );
+            debugPrint('PROVIDER_DEBUG: AIService CREATED OK');
+            return ai;
+          },
         ),
         ProxyProvider<AuthManager, CalendarService>(
           update: (_, auth, previous) {
@@ -149,7 +233,9 @@ class VyomaApp extends StatelessWidget {
         Provider<PingService>(
           create: (context) {
             debugPrint('PROVIDER_DEBUG: Creating PingService...');
-            return PingService(Provider.of<NotificationService>(context, listen: false));
+            return PingService(
+              Provider.of<NotificationService>(context, listen: false),
+            );
           },
         ),
         ProxyProvider<UserService, TelemetryService>(
@@ -163,23 +249,52 @@ class VyomaApp extends StatelessWidget {
         ChangeNotifierProxyProvider<CalendarService, TimetableService>(
           create: (context) {
             debugPrint('PROVIDER_DEBUG: Creating TimetableService...');
-            final t = TimetableService(Provider.of<CalendarService>(context, listen: false));
+            final t = TimetableService(
+              Provider.of<CalendarService>(context, listen: false),
+            );
             debugPrint('PROVIDER_DEBUG: TimetableService CREATED OK');
             return t;
           },
-          update: (_, calendar, previous) => previous ?? TimetableService(calendar),
+          update: (_, calendar, previous) =>
+              previous ?? TimetableService(calendar),
         ),
         ChangeNotifierProvider<TaskService>(
           create: (context) {
             debugPrint('PROVIDER_DEBUG: Creating TaskService...');
             final t = TaskService(
-              accountability: Provider.of<AccountabilityService>(context, listen: false),
-              coFocusService: Provider.of<CoFocusService>(context, listen: false),
+              accountability: Provider.of<AccountabilityService>(
+                context,
+                listen: false,
+              ),
+              coFocusService: Provider.of<CoFocusService>(
+                context,
+                listen: false,
+              ),
               userService: Provider.of<UserService>(context, listen: false),
             );
             debugPrint('PROVIDER_DEBUG: TaskService CREATED OK');
             return t;
           },
+        ),
+        Provider<DailyStatsStore>(create: (_) => SharedPrefsDailyStatsStore()),
+        ProxyProvider3<
+          FriendService,
+          UserService,
+          DailyStatsStore,
+          FocusRankingService
+        >(
+          update:
+              (
+                context,
+                friendService,
+                userService,
+                dailyStatsStore,
+                previous,
+              ) => PreviewFocusRankingService(
+                friendService: friendService,
+                userService: userService,
+                dailyStatsStore: dailyStatsStore,
+              ),
         ),
 
         // 3. ViewModels (Dependent on Services)
@@ -189,100 +304,163 @@ class VyomaApp extends StatelessWidget {
             return TutorialController();
           },
         ),
-        ChangeNotifierProxyProvider6<CalendarService, AIService, TimetableService, NotificationService, FriendService, AccountabilityService, WarRoomViewModel>(
+        ChangeNotifierProxyProvider6<
+          CalendarService,
+          AIService,
+          TimetableService,
+          NotificationService,
+          FriendService,
+          AccountabilityService,
+          WarRoomViewModel
+        >(
           create: (context) {
             debugPrint('PROVIDER_DEBUG: Creating WarRoomViewModel...');
             final vm = WarRoomViewModel(
-              calendarService: Provider.of<CalendarService>(context, listen: false),
+              calendarService: Provider.of<CalendarService>(
+                context,
+                listen: false,
+              ),
               aiService: Provider.of<AIService>(context, listen: false),
-              timetableService: Provider.of<TimetableService>(context, listen: false),
-              notificationService: Provider.of<NotificationService>(context, listen: false),
+              timetableService: Provider.of<TimetableService>(
+                context,
+                listen: false,
+              ),
+              notificationService: Provider.of<NotificationService>(
+                context,
+                listen: false,
+              ),
               friendService: Provider.of<FriendService>(context, listen: false),
-              accountabilityService: Provider.of<AccountabilityService>(context, listen: false),
-              telemetryService: Provider.of<TelemetryService>(context, listen: false),
+              accountabilityService: Provider.of<AccountabilityService>(
+                context,
+                listen: false,
+              ),
+              telemetryService: Provider.of<TelemetryService>(
+                context,
+                listen: false,
+              ),
             );
             debugPrint('PROVIDER_DEBUG: WarRoomViewModel CREATED OK');
             return vm;
           },
-          update: (context, calendar, ai, timetable, notifications, friend, acc, previous) =>
-              previous ?? WarRoomViewModel(
-                calendarService: calendar,
-                aiService: ai,
-                timetableService: timetable,
-                notificationService: notifications,
-                friendService: friend,
-                accountabilityService: acc,
-                telemetryService: Provider.of<TelemetryService>(context, listen: false),
-              ),
+          update:
+              (
+                context,
+                calendar,
+                ai,
+                timetable,
+                notifications,
+                friend,
+                acc,
+                previous,
+              ) =>
+                  previous ??
+                  WarRoomViewModel(
+                    calendarService: calendar,
+                    aiService: ai,
+                    timetableService: timetable,
+                    notificationService: notifications,
+                    friendService: friend,
+                    accountabilityService: acc,
+                    telemetryService: Provider.of<TelemetryService>(
+                      context,
+                      listen: false,
+                    ),
+                  ),
         ),
       ],
       child: Consumer<MemoryService>(
         builder: (context, memory, _) {
           if (!memory.isInitialized) {
-            return const MaterialApp(home: Scaffold(backgroundColor: Colors.black)); // Splash
+            return const MaterialApp(
+              home: Scaffold(backgroundColor: VyColors.background),
+            ); // Splash
           }
 
           return MaterialApp(
             title: 'Vyoma',
             debugShowCheckedModeBanner: false,
             theme: VyomaTheme.dark,
+            darkTheme: VyomaTheme.dark,
+            themeMode: ThemeMode.dark,
             builder: (context, child) {
+              debugPrint(
+                'UI_DEBUG: MaterialApp.builder | child=${child?.runtimeType} | tutorialOverlayEnabled=$_kEnableTutorialOverlay',
+              );
               return Stack(
                 children: [
                   ?child,
-                  Consumer<TutorialController>(
-                    builder: (context, tutorial, _) {
-                      if (!tutorial.isActive) return const SizedBox.shrink();
-                      return TutorialOverlay(controller: tutorial);
-                    },
-                  ),
-                  
+                  if (_kEnableTutorialOverlay)
+                    Consumer<TutorialController>(
+                      builder: (context, tutorial, _) {
+                        if (!tutorial.isActive) return const SizedBox.shrink();
+                        return TutorialOverlay(controller: tutorial);
+                      },
+                    ),
+
                   // Global Debug Status Panel
                   if (kDebugMode)
-                  Positioned(
-                    bottom: 120, 
-                    right: 20,
-                    child: Consumer<AIService>(
-                      builder: (context, aiService, _) => StreamBuilder<String>(
-                        stream: aiService.debugStatusStream,
-                        builder: (context, snapshot) {
-                          if (!snapshot.hasData) return const SizedBox.shrink();
-                          
-                          return Material(
-                            color: Colors.transparent,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.85),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.white12),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.5),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 4),
-                                  )
-                                ],
-                              ),
-                              child: ConstrainedBox(
-                                constraints: const BoxConstraints(maxWidth: 300),
-                                child: Text(
-                                  snapshot.data!,
-                                  style: GoogleFonts.robotoMono(
-                                    color: snapshot.data!.contains('Error') || snapshot.data!.contains('Failed') 
-                                        ? const Color(0xFFFF5252) 
-                                        : const Color(0xFF69F0AE),
-                                    fontSize: 11,
-                                    height: 1.2,
+                    Positioned(
+                      bottom: 120,
+                      right: 20,
+                      child: Consumer<AIService>(
+                        builder: (context, aiService, _) =>
+                            StreamBuilder<String>(
+                              stream: aiService.debugStatusStream,
+                              builder: (context, snapshot) {
+                                if (!snapshot.hasData) {
+                                  return const SizedBox.shrink();
+                                }
+
+                                return Material(
+                                  color: Colors.transparent,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.85,
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: Colors.white12),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.5,
+                                          ),
+                                          blurRadius: 8,
+                                          offset: const Offset(0, 4),
+                                        ),
+                                      ],
+                                    ),
+                                    child: ConstrainedBox(
+                                      constraints: const BoxConstraints(
+                                        maxWidth: 300,
+                                      ),
+                                      child: Text(
+                                        snapshot.data!,
+                                        style: GoogleFonts.robotoMono(
+                                          color:
+                                              snapshot.data!.contains(
+                                                    'Error',
+                                                  ) ||
+                                                  snapshot.data!.contains(
+                                                    'Failed',
+                                                  )
+                                              ? const Color(0xFFFF5252)
+                                              : const Color(0xFF69F0AE),
+                                          fontSize: 11,
+                                          height: 1.2,
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ),
+                                );
+                              },
                             ),
-                          );
-                        },
                       ),
                     ),
-                  ),
                 ],
               );
             },
@@ -332,18 +510,21 @@ class _LaunchGateState extends State<_LaunchGate> {
 
   void _initDeepLinks() {
     _appLinks = AppLinks();
-    
+
     // Check initial link if app was cold-started by a link
     _appLinks.getInitialLink().then((uri) {
       if (uri != null) _handleLink(uri);
     });
 
     // Listen to incoming links when app is running or in background
-    _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
-      _handleLink(uri);
-    }, onError: (err) {
-      debugPrint("Deep Link Error: $err");
-    });
+    _linkSubscription = _appLinks.uriLinkStream.listen(
+      (uri) {
+        _handleLink(uri);
+      },
+      onError: (err) {
+        debugPrint("Deep Link Error: $err");
+      },
+    );
   }
 
   void _handleLink(Uri uri) {
@@ -371,7 +552,9 @@ class _LaunchGateState extends State<_LaunchGate> {
       hypothesisId: 'H4',
       location: 'main.dart:_loadOnboardingFlag',
       message: 'Loaded onboarding flag',
-      data: {'onboarding_complete': prefs.getBool('onboarding_complete') ?? false},
+      data: {
+        'onboarding_complete': prefs.getBool('onboarding_complete') ?? false,
+      },
     );
     setState(() {
       _onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
@@ -387,7 +570,7 @@ class _LaunchGateState extends State<_LaunchGate> {
       data: {'onboarding_complete_state': _onboardingComplete},
     );
     if (_onboardingComplete == null) {
-      return const Scaffold(backgroundColor: Colors.black);
+      return const Scaffold(backgroundColor: VyColors.background);
     }
 
     return StreamBuilder<List<ConnectivityResult>>(
@@ -396,32 +579,33 @@ class _LaunchGateState extends State<_LaunchGate> {
         bool isOffline = false;
         if (snapshot.hasData) {
           final results = snapshot.data!;
-          isOffline = results.isEmpty || results.contains(ConnectivityResult.none);
+          isOffline =
+              results.isEmpty || results.contains(ConnectivityResult.none);
         }
 
         if (isOffline) {
           return const Scaffold(
-            backgroundColor: Color(0xFF0F0F1A),
+            backgroundColor: VyColors.background,
             body: Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.wifi_off_rounded, size: 64, color: Colors.white54),
+                  Icon(Icons.wifi_off_rounded, size: 56, color: VyColors.textMuted),
                   SizedBox(height: 24),
                   Text(
                     "CONNECTION LOST",
                     style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      letterSpacing: 2,
-                      fontWeight: FontWeight.bold,
+                      color: VyColors.textPrimary,
+                      fontSize: 11,
+                      letterSpacing: 2.5,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                   SizedBox(height: 12),
                   Text(
                     "Vyoma requires an active internet connection\nfor AI generation and accountability sync.",
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.white54, fontSize: 14),
+                    style: TextStyle(color: VyColors.textMuted, fontSize: 14),
                   ),
                 ],
               ),
@@ -448,21 +632,23 @@ class _LaunchGateState extends State<_LaunchGate> {
             );
 
             if (authSnapshot.connectionState == ConnectionState.waiting) {
-              return const Scaffold(backgroundColor: Colors.black);
+              return const Scaffold(backgroundColor: VyColors.background);
             }
             if (user == null) {
               return const LoginScreen();
             }
             if (!userSvc.isProfileLoaded) {
               return const Scaffold(
-                backgroundColor: Colors.black,
-                body: Center(child: CircularProgressIndicator(color: Color(0xFF06B6D4))),
+                backgroundColor: VyColors.background,
+                body: Center(child: VyLoader()),
               );
             }
             if (!userSvc.hasProfile) {
               return const ProfileSetupScreen();
             }
-            return _onboardingComplete! ? const HomeScreen() : const OnboardingScreen();
+            return _onboardingComplete!
+                ? const HomeScreen()
+                : const OnboardingScreen();
           },
         );
       },

@@ -55,6 +55,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/theme/app_theme.dart';
 
 // ── Step definitions ──────────────────────────────────────────────────────────
 
@@ -621,7 +622,7 @@ class _TooltipCard extends StatelessWidget {
             color: Colors.white.withAlpha(18),
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
-              color: const Color(0xFF06B6D4).withAlpha(80),
+              color: AppColors.gold.withAlpha(80),
               width: 0.6,
             ),
           ),
@@ -632,7 +633,7 @@ class _TooltipCard extends StatelessWidget {
               Text(
                 data.title,
                 style: const TextStyle(
-                  color: Color(0xFF06B6D4),
+                  color: AppColors.gold,
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.2,
@@ -657,17 +658,17 @@ class _TooltipCard extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 18, vertical: 9),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF06B6D4).withAlpha(30),
+                        color: AppColors.gold.withAlpha(30),
                         borderRadius: BorderRadius.circular(99),
                         border: Border.all(
-                          color: const Color(0xFF06B6D4).withAlpha(100),
+                          color: AppColors.gold.withAlpha(100),
                           width: 0.6,
                         ),
                       ),
                       child: Text(
                         isLast ? 'Let\'s go →' : 'Got it',
                         style: const TextStyle(
-                          color: Color(0xFF06B6D4),
+                          color: AppColors.gold,
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),
@@ -718,7 +719,7 @@ class _SpotlightPainter extends CustomPainter {
     // Pulse border around spotlight
     if (pulseWidth > 0) {
       final pulsePaint = Paint()
-        ..color = const Color(0xFF06B6D4).withAlpha((pulseOpacity * 160).round())
+        ..color = AppColors.gold.withAlpha((pulseOpacity * 160).round())
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5
         ..maskFilter = MaskFilter.blur(
@@ -727,7 +728,7 @@ class _SpotlightPainter extends CustomPainter {
 
       // Solid hairline border
       final borderPaint = Paint()
-        ..color = const Color(0xFF06B6D4).withAlpha(90)
+        ..color = AppColors.gold.withAlpha(90)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 0.8;
       canvas.drawRRect(rrect, borderPaint);
@@ -760,7 +761,7 @@ class _ArrowPainter extends CustomPainter {
 
     const arrowLength = 40.0;
     const headSize    = 8.0;
-    const color       = Color(0xFF06B6D4);
+    const color       = AppColors.gold;
 
     Offset start;
     Offset end;

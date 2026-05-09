@@ -40,37 +40,37 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 
-// ── Token palette ─────────────────────────────────────────────────────────────
+// ── Token palette (aliased to gold/warm system) ───────────────────────────────
 class VyomaGlass {
   VyomaGlass._();
 
-  // Surfaces
-  static const Color obsidian      = Color(0xFF0A0A0C);
-  static const Color surface       = Color(0xFF111116);
-  static const Color surfaceRaised = Color(0xFF18181F);
-  static const Color frost         = Color(0x14FFFFFF); // white 8%
-  static const Color frostStrong   = Color(0x22FFFFFF); // white 13%
+  // Surfaces — warm void
+  static const Color obsidian      = Color(0xFF0D0D0B);
+  static const Color surface       = Color(0xFF151513);
+  static const Color surfaceRaised = Color(0xFF1C1C1A);
+  static const Color frost         = Color(0x14FFFFFF);
+  static const Color frostStrong   = Color(0x22FFFFFF);
 
   // Borders
-  static const Color borderSubtle  = Color(0x2EFFFFFF); // white 18%
-  static const Color borderActive  = Color(0x6AFFFFFF); // white 42%
-  static const Color borderAccent  = Color(0xFF06B6D4); // cyan
+  static const Color borderSubtle  = Color(0xFF222220);
+  static const Color borderActive  = Color(0xFF2A2820);
+  static const Color borderAccent  = Color(0xFFD4AF72); // gold
 
-  // Accent / glow
-  static const Color cyan          = Color(0xFF06B6D4);
-  static const Color cyanDim       = Color(0x1E06B6D4); // cyan 12%
-  static const Color cyanGlow      = Color(0x3C06B6D4); // cyan 24%
-  static const Color amber         = Color(0xFFF59E0B);
-  static const Color amberDim      = Color(0x1EF59E0B);
-  static const Color emerald       = Color(0xFF10B981);
-  static const Color emeraldDim    = Color(0x1E10B981);
-  static const Color rose          = Color(0xFFF43F5E);
-  static const Color roseDim       = Color(0x1EF43F5E);
+  // Accent / glow — gold-only
+  static const Color cyan          = Color(0xFFD4AF72);
+  static const Color cyanDim       = Color(0x1ED4AF72);
+  static const Color cyanGlow      = Color(0x26D4AF72);
+  static const Color amber         = Color(0xFFD4AF72);
+  static const Color amberDim      = Color(0x1ED4AF72);
+  static const Color emerald       = Color(0xFFD4AF72);
+  static const Color emeraldDim    = Color(0x1ED4AF72);
+  static const Color rose          = Color(0xFF8B3A3A);
+  static const Color roseDim       = Color(0x1E8B3A3A);
 
   // Text
-  static const Color textPrimary   = Color(0xFFE2E8F0);
-  static const Color textSecondary = Color(0xFF94A3B8);
-  static const Color textFaint     = Color(0xFF475569);
+  static const Color textPrimary   = Color(0xFFE8E4DC);
+  static const Color textSecondary = Color(0xFF8A8780);
+  static const Color textFaint     = Color(0xFF5C5A55);
 
   // Blur levels
   static const double blurTight    = 6.0;

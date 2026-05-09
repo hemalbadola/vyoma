@@ -1,15 +1,15 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
-import '../vyoma_theme.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
+import '../../core/theme/vyoma_tokens.dart';
 import '../../tutorial/tutorial_keys.dart';
 
-class CommandDock extends StatelessWidget {
+class CommandDock extends StatefulWidget {
   final int currentIndex;
   final Function(int) onTap;
   final VoidCallback onCommand;
+  // Long-press the bindu FAB to enter a contemplative pause. Optional —
+  // callers that don't pass it get tap-only behavior.
+  final VoidCallback? onBinduMoment;
   final GlobalKey? navWarRoomKey;
   final GlobalKey? navIntelKey;
   final GlobalKey? navJournalKey;
@@ -21,12 +21,20 @@ class CommandDock extends StatelessWidget {
     required this.currentIndex,
     required this.onTap,
     required this.onCommand,
+    this.onBinduMoment,
     this.navWarRoomKey,
     this.navIntelKey,
     this.navJournalKey,
     this.navScheduleKey,
     this.navCircleKey,
   });
+
+  @override
+  State<CommandDock> createState() => _CommandDockState();
+}
+
+class _CommandDockState extends State<CommandDock> {
+  bool _fabPressed = false;
 
   Widget _keyWrap(GlobalKey? key, Widget child) {
     if (key == null) return child;
@@ -35,285 +43,171 @@ class CommandDock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isCompact = MediaQuery.sizeOf(context).width < 430;
+    final disableAnimations = MediaQuery.of(context).disableAnimations;
 
     return SafeArea(
       top: false,
-      child: Align(
-        alignment: Alignment.bottomCenter,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 760),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+      child: Container(
+        key: VyomaTutorialKeys.commandDock,
+        decoration: const BoxDecoration(
+          color: VyColors.surface1,
+          border: Border(
+            top: BorderSide(color: VyColors.border, width: 1),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(
+          vertical: VySpacing.sm,
+          horizontal: VySpacing.xs,
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: _keyWrap(
+                widget.navWarRoomKey,
+                _VyNavItem(
+                  icon: Icons.brightness_low_rounded,
+                  label: 'TODAY',
+                  isSelected: widget.currentIndex == 0,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    widget.onTap(0);
+                  },
+                ),
+              ),
+            ),
+            Expanded(
+              child: _keyWrap(
+                widget.navScheduleKey,
+                _VyNavItem(
+                  icon: Icons.calendar_view_week_rounded,
+                  label: 'SCHEDULE',
+                  isSelected: widget.currentIndex == 3,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    widget.onTap(3);
+                  },
+                ),
+              ),
+            ),
+            // Bindu FAB — single primary action entry point
+            GestureDetector(
+              onTapDown: (_) {
+                if (disableAnimations) return;
+                setState(() => _fabPressed = true);
+              },
+              onTapCancel: () {
+                if (disableAnimations) return;
+                setState(() => _fabPressed = false);
+              },
+              onTapUp: (_) async {
+                if (!disableAnimations) {
+                  await Future<void>.delayed(VyDuration.fast);
+                  if (mounted) setState(() => _fabPressed = false);
+                }
+              },
+              onTap: () {
+                HapticFeedback.lightImpact();
+                widget.onCommand();
+              },
+              onLongPress: widget.onBinduMoment == null
+                  ? null
+                  : () {
+                      HapticFeedback.mediumImpact();
+                      widget.onBinduMoment!();
+                    },
+              child: AnimatedScale(
+                scale: _fabPressed ? 0.92 : 1.0,
+                duration: VyDuration.fast,
+                curve: VyCurves.standard,
                 child: Container(
-                  key: VyomaTutorialKeys.commandDock,
-                  padding: EdgeInsets.symmetric(
-                    horizontal: isCompact ? 8 : 10,
-                    vertical: isCompact ? 8 : 10,
+                  width: 52,
+                  height: 52,
+                  decoration: const BoxDecoration(
+                    color: VyColors.gold,
+                    shape: BoxShape.circle,
                   ),
-                  decoration: BoxDecoration(
-                    color: VyomaColors.bgCard.withValues(alpha: 0.78),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: VyomaColors.borderSubtle.withValues(alpha: 0.95), width: 0.85),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.6),
-                        blurRadius: 30,
-                        offset: const Offset(0, 12),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _keyWrap(
-                          navWarRoomKey,
-                          _NavItem(
-                            icon: Icons.home_rounded,
-                            label: 'TODAY',
-                            compact: isCompact,
-                            isSelected: currentIndex == 0,
-                            onTap: () {
-                              HapticFeedback.selectionClick();
-                              onTap(0);
-                            },
-                          ),
-                        ),
-                      ),
-                      SizedBox(width: isCompact ? 6 : 8),
-                      Expanded(
-                        child: _keyWrap(
-                          navIntelKey,
-                          _NavItem(
-                            icon: Icons.analytics_rounded,
-                            label: 'PROGRESS',
-                            compact: isCompact,
-                            isSelected: currentIndex == 1,
-                            onTap: () {
-                              HapticFeedback.selectionClick();
-                              onTap(1);
-                            },
-                          ),
-                        ),
-                      ),
-                      SizedBox(width: isCompact ? 6 : 8),
-                      _CommandOrb(
-                        compact: isCompact,
-                        onCommand: onCommand,
-                      ),
-                      SizedBox(width: isCompact ? 6 : 8),
-                      Expanded(
-                        child: _keyWrap(
-                          navJournalKey,
-                          _NavItem(
-                            icon: Icons.auto_stories_rounded,
-                            label: 'JOURNAL',
-                            compact: isCompact,
-                            isSelected: currentIndex == 2,
-                            onTap: () {
-                              HapticFeedback.selectionClick();
-                              onTap(2);
-                            },
-                          ),
-                        ),
-                      ),
-                      SizedBox(width: isCompact ? 6 : 8),
-                      Expanded(
-                        child: _keyWrap(
-                          navScheduleKey,
-                          _NavItem(
-                            icon: Icons.calendar_view_week_rounded,
-                            label: 'SCHEDULE',
-                            compact: isCompact,
-                            isSelected: currentIndex == 3,
-                            onTap: () {
-                              HapticFeedback.selectionClick();
-                              onTap(3);
-                            },
-                          ),
-                        ),
-                      ),
-                      SizedBox(width: isCompact ? 6 : 8),
-                      Expanded(
-                        child: _keyWrap(
-                          navCircleKey,
-                          _NavItem(
-                            icon: Icons.group_work_rounded,
-                            label: 'CIRCLE',
-                            compact: isCompact,
-                            isSelected: currentIndex == 4,
-                            onTap: () {
-                              HapticFeedback.selectionClick();
-                              onTap(4);
-                            },
-                          ),
-                        ),
-                      ),
-                    ],
+                  child: const Icon(
+                    Icons.chat_bubble_rounded,
+                    color: VyColors.background,
+                    size: 20,
                   ),
                 ),
               ),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CommandOrb extends StatefulWidget {
-  final VoidCallback onCommand;
-  final bool compact;
-
-  const _CommandOrb({
-    required this.onCommand,
-    required this.compact,
-  });
-
-  @override
-  State<_CommandOrb> createState() => _CommandOrbState();
-}
-
-class _CommandOrbState extends State<_CommandOrb> {
-  bool _isHovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: 'Talk to Vyoma (Cmd/Ctrl+K)',
-      textStyle: GoogleFonts.inter(
-        color: Colors.white,
-        fontSize: 12,
-        fontWeight: FontWeight.w500,
-      ),
-      decoration: BoxDecoration(
-        color: const Color(0xFF121212),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.35)),
-      ),
-      preferBelow: false,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _isHovered = true),
-        onExit: (_) => setState(() => _isHovered = false),
-        child: GestureDetector(
-          onTap: () {
-            HapticFeedback.mediumImpact();
-            widget.onCommand();
-          },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: widget.compact ? 44 : 48,
-            height: widget.compact ? 44 : 48,
-            decoration: BoxDecoration(
-              color: _isHovered ? const Color(0xFF14C88D) : const Color(0xFF10B981),
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF10B981).withValues(alpha: 0.35),
-                  blurRadius: _isHovered ? 20 : 14,
-                  spreadRadius: _isHovered ? 1.5 : 0.5,
+            Expanded(
+              child: _keyWrap(
+                widget.navIntelKey,
+                _VyNavItem(
+                  icon: Icons.show_chart_rounded,
+                  label: 'PROGRESS',
+                  isSelected: widget.currentIndex == 1,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    widget.onTap(1);
+                  },
                 ),
-              ],
+              ),
             ),
-            child: const Icon(Icons.chat_bubble_rounded, color: Colors.white, size: 20),
-          ),
+            Expanded(
+              child: _keyWrap(
+                widget.navCircleKey,
+                _VyNavItem(
+                  icon: Icons.group_rounded,
+                  label: 'CIRCLE',
+                  isSelected: widget.currentIndex == 4,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    widget.onTap(4);
+                  },
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _NavItem extends StatefulWidget {
+class _VyNavItem extends StatelessWidget {
   final IconData icon;
   final String label;
-  final bool compact;
   final bool isSelected;
   final VoidCallback onTap;
 
-  const _NavItem({
+  const _VyNavItem({
     required this.icon,
     required this.label,
-    required this.compact,
     required this.isSelected,
     required this.onTap,
   });
 
   @override
-  State<_NavItem> createState() => _NavItemState();
-}
-
-class _NavItemState extends State<_NavItem> {
-  bool _isHovered = false;
-  bool _isPressed = false;
-
-  @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        onTapDown: (_) => setState(() => _isPressed = true),
-        onTapUp: (_) => setState(() => _isPressed = false),
-        onTapCancel: () => setState(() => _isPressed = false),
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedScale(
-          scale: _isPressed ? 0.95 : (_isHovered ? 1.02 : 1.0),
-          duration: const Duration(milliseconds: 140),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            padding: EdgeInsets.symmetric(
-              horizontal: widget.compact ? 6 : 8,
-              vertical: widget.compact ? 7 : 8,
+    final color = isSelected ? VyColors.gold : VyColors.textFaint;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        height: 56,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 18),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.fade,
+              style: VyType.sectionLabel.copyWith(
+                color: color,
+                fontSize: 9,
+                letterSpacing: 1.4,
+              ),
             ),
-            decoration: BoxDecoration(
-              color: widget.isSelected
-                  ? Colors.white.withValues(alpha: 0.08)
-                  : (_isHovered ? Colors.white.withValues(alpha: 0.04) : Colors.transparent),
-              borderRadius: BorderRadius.circular(12),
-              border: widget.isSelected
-                  ? Border.all(color: Colors.white12, width: 0.6)
-                  : null,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  widget.icon,
-                  color: widget.isSelected ? Colors.white : const Color(0xFF7A7D85),
-                  size: widget.compact ? 17 : 18,
-                ),
-                const SizedBox(height: 4),
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  width: widget.isSelected ? 16 : 0,
-                  height: 2,
-                  margin: const EdgeInsets.only(bottom: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF10B981),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                Text(
-                  widget.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.inter(
-                    color: widget.isSelected ? Colors.white : const Color(0xFF7A7D85),
-                    fontSize: widget.compact ? 8 : 9,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-              ],
-            ),
-          ),
+          ],
         ),
       ),
     );

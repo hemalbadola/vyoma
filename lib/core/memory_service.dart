@@ -310,6 +310,13 @@ class MemoryService extends ChangeNotifier {
     return items.take(limit).toList();
   }
 
+  /// Total persisted journal entries (not capped by [getJournalEntries] limit).
+  int getJournalEntryCount() {
+    final raw = _memory[kJournalEntries];
+    if (raw == null) return 0;
+    return (raw as List).length;
+  }
+
   int getJournalStreakDays() {
     final entries = getJournalEntries();
     if (entries.isEmpty) return 0;

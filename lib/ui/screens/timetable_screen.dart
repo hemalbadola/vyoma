@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../vyoma_theme.dart';
 import '../widgets/weekly_calendar_grid.dart';
 import '../widgets/background_mesh.dart';
@@ -56,7 +55,7 @@ class TimetableScreen extends StatelessWidget {
                 children: [
                   Text(
                     "TIMETABLE",
-                    style: GoogleFonts.jetBrainsMono(
+                    style: TextStyle(fontFeatures: const [FontFeature.tabularFigures()],
                       color: VyomaColors.accent,
                       fontSize: 10,
                       letterSpacing: 2,
@@ -66,7 +65,7 @@ class TimetableScreen extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     "Weekly Grid",
-                    style: GoogleFonts.inter(
+                    style: TextStyle(
                       color: Colors.white,
                       fontSize: 24,
                       fontWeight: FontWeight.w700,

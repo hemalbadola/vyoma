@@ -6,6 +6,7 @@ import 'package:googleapis/calendar/v3.dart' as gcal;
 import 'package:provider/provider.dart';
 
 import '../../core/calendar_service.dart';
+import '../../core/widgets/vy_loader.dart';
 
 class WeeklyCalendarGrid extends StatefulWidget {
   const WeeklyCalendarGrid({super.key});
@@ -441,14 +442,14 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
                   context.read<CalendarService>().clearInitCooldown();
                   _refreshWeek().then((_) => _startPollTimer());
                 },
-                icon: const Icon(Icons.refresh, color: Colors.cyanAccent),
+                icon: const Icon(Icons.refresh, color: Color(0xFFD4AF72)),
               ),
             ],
           ),
         ),
         Expanded(
           child: _isLoading
-              ? const Center(child: CircularProgressIndicator())
+              ? const Center(child: VyLoader())
               : _error != null
               ? _buildError()
               : _buildGrid(days),

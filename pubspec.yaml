@@ -69,6 +69,7 @@ dependencies:
   cross_file: ^0.3.5+2
   cloud_functions: ^6.2.0
   workmanager: any
+  flutter_native_splash: ^2.4.1
 
 dev_dependencies:
   flutter_test:
@@ -80,7 +81,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
-  flutter_launcher_icons: ^0.14.4
+  flutter_launcher_icons: ^0.14.1
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -94,13 +95,10 @@ flutter:
   uses-material-design: true
 
   assets:
-    - vyoma-horizontal-lockup.svg
-    - vyoma-icon-192.svg
-    - vyoma-icon-512.svg
-    - vyoma-favicon-32.svg
-    - vyoma-social-pfp.svg
     # .env intentionally NOT listed as asset — use --dart-define or backend proxy for secrets
-    - vyoma-logo-full.svg
+    - assets/images/vyoma_logo_black.png
+    - assets/images/vyoma_logo_transparent.png
+    - assets/images/vyoma_small_icon.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
@@ -108,36 +106,30 @@ flutter:
   # For details regarding adding assets from package dependencies, see
   # https://flutter.dev/to/asset-from-package
 
-  # To add custom fonts to your application, add a fonts section here,
-  # in this "flutter" section. Each entry in this list should have a
-  # "family" key with the font family name, and a "fonts" key with a
-  # list giving the asset and other descriptors for the font. For
-  # example:
-  # fonts:
-  #   - family: Schyler
-  #     fonts:
-  #       - asset: fonts/Schyler-Regular.ttf
-  #       - asset: fonts/Schyler-Italic.ttf
-  #         style: italic
-  #   - family: Trajan Pro
-  #     fonts:
-  #       - asset: fonts/TrajanPro.ttf
-  #       - asset: fonts/TrajanPro_Bold.ttf
-  #         weight: 700
-  #
-  # For details regarding fonts from package dependencies,
-  # see https://flutter.dev/to/font-from-package
+  fonts:
+    - family: CormorantGaramond
+      fonts:
+        - asset: assets/fonts/CormorantGaramond-Light.ttf
+          weight: 300
+        - asset: assets/fonts/CormorantGaramond-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/CormorantGaramond-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/CormorantGaramond-SemiBold.ttf
+          weight: 600
 
 flutter_launcher_icons:
-  android: "launcher_icon"
+  android: true
   ios: true
-  image_path: "vyoma-icon-512.png"
+  image_path: "assets/images/vyoma_logo_black.png"
   min_sdk_android: 21
-  web:
-    generate: true
-    image_path: "vyoma-icon-512.png"
-    background_color: "#0F172A"
-    theme_color: "#0F172A"
-  macos:
-    generate: true
-    image_path: "vyoma-icon-512.png"
+  adaptive_icon_background: "#0D0D0B"
+  adaptive_icon_foreground: "assets/images/vyoma_logo_transparent.png"
+  remove_alpha_ios: true
+
+flutter_native_splash:
+  color: "#0D0D0B"
+  image: assets/images/vyoma_logo_transparent.png
+  android_12:
+    color: "#0D0D0B"
+    image: assets/images/vyoma_logo_transparent.png

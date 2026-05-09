@@ -3,6 +3,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../core/user_service.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/widgets/vy_loader.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
   const ProfileSetupScreen({super.key});
@@ -79,7 +81,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0F1A),
+      backgroundColor: AppColors.background,
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 32.0),
@@ -90,7 +92,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
               Text(
                 "INITIALIZE AGENT",
                 style: GoogleFonts.jetBrainsMono(
-                  color: const Color(0xFF06B6D4),
+                  color: AppColors.gold,
                   fontSize: 16,
                   letterSpacing: 2,
                 ),
@@ -109,14 +111,14 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                 style: GoogleFonts.inter(color: Colors.white),
                 decoration: InputDecoration(
                   labelText: 'AGENT USERNAME',
-                  labelStyle: const TextStyle(color: Color(0xFF06B6D4)),
+                  labelStyle: const TextStyle(color: AppColors.gold),
                   prefixText: '@ ',
                   prefixStyle: const TextStyle(color: Colors.white54),
                   enabledBorder: const UnderlineInputBorder(
                     borderSide: BorderSide(color: Colors.white24),
                   ),
                   focusedBorder: const UnderlineInputBorder(
-                    borderSide: BorderSide(color: Color(0xFF06B6D4)),
+                    borderSide: BorderSide(color: AppColors.gold),
                   ),
                 ),
               ),
@@ -133,7 +135,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                     borderSide: BorderSide(color: Colors.white24),
                   ),
                   focusedBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Color(0xFF06B6D4)),
+                    borderSide: BorderSide(color: AppColors.gold),
                   ),
                 ),
               ),
@@ -154,7 +156,7 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                   ),
                   onPressed: _isLoading ? null : _submit,
                   child: _isLoading 
-                    ? const CircularProgressIndicator(color: Colors.white)
+                    ? const VyLoader()
                     : Text(
                         "ENTER THE CIRCLE", 
                         style: GoogleFonts.inter(

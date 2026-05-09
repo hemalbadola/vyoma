@@ -21,6 +21,11 @@ import '../core/user_service.dart';
 import '../core/telemetry_service.dart';
 import '../tutorial/tutorial_controller.dart';
 import '../tutorial/tutorial_keys.dart';
+import '../core/theme/vyoma_tokens.dart';
+import '../core/widgets/vy_loader.dart';
+import '../features/bindu_moment/domain/agitation_detector.dart';
+import '../features/bindu_moment/presentation/screens/bindu_moment_screen.dart';
+import '../features/bindu_moment/presentation/widgets/bindu_offer_listener.dart';
 
 class _OpenCommsIntent extends Intent {
   const _OpenCommsIntent();
@@ -35,6 +40,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
+  int _buildTick = 0;
 
   TutorialController? _tutorialController;
 
@@ -61,7 +67,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _closeChatSheetsForTutorial() {
     final nav = Navigator.of(context, rootNavigator: true);
     var guard = 0;
-    while (ChatSheetPresentation.presentCount > 0 && nav.canPop() && guard < 8) {
+    while (ChatSheetPresentation.presentCount > 0 &&
+        nav.canPop() &&
+        guard < 8) {
       nav.pop();
       guard++;
     }
@@ -78,7 +86,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     } else {
       var guard = 0;
-      while (ChatSheetPresentation.presentCount > 0 && nav.canPop() && guard < 8) {
+      while (ChatSheetPresentation.presentCount > 0 &&
+          nav.canPop() &&
+          guard < 8) {
         nav.pop();
         guard++;
       }
@@ -134,9 +144,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     final telemetry = context.read<TelemetryService>();
-    
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive || state == AppLifecycleState.detached) {
-      debugPrint("LIFECYCLE_DEBUG: App Backgrounded/Paused. Entering Power Save Mode.");
+
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      debugPrint(
+        "LIFECYCLE_DEBUG: App Backgrounded/Paused. Entering Power Save Mode.",
+      );
       telemetry.notifyAppBackgrounded();
     } else if (state == AppLifecycleState.resumed) {
       debugPrint("LIFECYCLE_DEBUG: App Resumed. Entering High Fidelity Mode.");
@@ -162,14 +176,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             onWakeupConfirmed: () async {
               await wakeupService.confirmWakeup();
               if (mounted) Navigator.of(context).pop();
-            }
-          )
-        )
+            },
+          ),
+        ),
       );
     }
   }
 
   void _showComms(BuildContext context) {
+    context.read<AgitationDetector>().noteChatOpen();
     Navigator.of(context, rootNavigator: true).push(ChatSheet.slideUpRoute());
   }
 
@@ -179,11 +194,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final memory = context.watch<MemoryService>();
     if (!userSvc.isProfileLoaded) {
       return const Scaffold(
-        backgroundColor: Colors.black,
-        body: Center(child: CircularProgressIndicator(color: Color(0xFF06B6D4))),
+        backgroundColor: VyColors.background,
+        body: Center(child: VyLoader()),
       );
     }
-    
+
     if (!userSvc.hasProfile) {
       if (memory.hasOnboarded) {
         return _buildHomeScaffold(context);
@@ -195,10 +210,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildHomeScaffold(BuildContext context) {
+    _buildTick += 1;
+    final tabName = _tabs[_currentIndex].runtimeType.toString();
+    debugPrint(
+      'UI_DEBUG: Home scaffold build #$_buildTick | currentIndex=$_currentIndex | tab=$tabName',
+    );
     return Shortcuts(
       shortcuts: const <ShortcutActivator, Intent>{
-        SingleActivator(LogicalKeyboardKey.keyK, meta: true): _OpenCommsIntent(),
-        SingleActivator(LogicalKeyboardKey.keyK, control: true): _OpenCommsIntent(),
+        SingleActivator(LogicalKeyboardKey.keyK, meta: true):
+            _OpenCommsIntent(),
+        SingleActivator(LogicalKeyboardKey.keyK, control: true):
+            _OpenCommsIntent(),
       },
       child: Actions(
         actions: <Type, Action<Intent>>{
@@ -212,45 +234,64 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         child: Focus(
           autofocus: true,
           child: Scaffold(
-            backgroundColor: Colors.black,
-            body: Stack(
-              children: [
-                // 0. Ambient Background
-                const BackgroundMesh(),
+            backgroundColor: VyColors.background,
+            bottomNavigationBar: CommandDock(
+              currentIndex: _currentIndex,
+              navWarRoomKey: VyomaTutorialKeys.navWarRoom,
+              navJournalKey: VyomaTutorialKeys.navJournal,
+              navScheduleKey: VyomaTutorialKeys.navTimetable,
+              navCircleKey: VyomaTutorialKeys.navFriends,
+              onTap: (index) {
+                context.read<AgitationDetector>().noteTaskSwitch();
+                setState(() => _currentIndex = index);
+              },
+              onCommand: () => _showComms(context),
+              onBinduMoment: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    fullscreenDialog: true,
+                    builder: (_) => const BinduMomentScreen(),
+                  ),
+                );
+              },
+            ),
+            body: BinduOfferListener(
+              child: Stack(
+                children: [
+                  const BackgroundMesh(),
 
                 // 1. Tab Content
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 250),
-                  switchInCurve: Curves.easeOut,
-                  switchOutCurve: Curves.easeIn,
-                  child: KeyedSubtree(
-                    key: ValueKey(_currentIndex),
-                    child: _tabs[_currentIndex],
+                Positioned.fill(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      debugPrint(
+                        'UI_DEBUG: Tab host constraints | maxW=${constraints.maxWidth} maxH=${constraints.maxHeight}',
+                      );
+                      return IndexedStack(
+                        index: _currentIndex,
+                        children: _tabs,
+                      );
+                    },
                   ),
                 ),
 
-                // 2. Floating Command Dock
-                CommandDock(
-                  currentIndex: _currentIndex,
-                  navWarRoomKey: VyomaTutorialKeys.navWarRoom,
-                  navJournalKey: VyomaTutorialKeys.navJournal,
-                  navScheduleKey: VyomaTutorialKeys.navTimetable,
-                  navCircleKey: VyomaTutorialKeys.navFriends,
-                  onTap: (index) => setState(() => _currentIndex = index),
-                  onCommand: () => _showComms(context),
-                ),
-                
-                // 3. Utility Rail (Top Right)
+                // 2. Utility Rail (Top Right)
                 Positioned(
                   top: 16,
                   right: 16,
                   child: SafeArea(
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF101114),
+                        color: VyColors.surface1,
                         borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFF2A2A2A), width: 0.8),
+                        border: Border.all(
+                          color: VyColors.border,
+                          width: 0.8,
+                        ),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withValues(alpha: 0.35),
@@ -262,7 +303,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       child: Column(
                         children: [
                           StreamBuilder<int>(
-                            stream: context.read<NotificationService>().unreadCount,
+                            stream: context
+                                .read<NotificationService>()
+                                .unreadCount,
                             builder: (context, snapshot) {
                               final unread = snapshot.data ?? 0;
                               return Stack(
@@ -275,7 +318,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                     onTap: () {
                                       Navigator.of(context).push(
                                         MaterialPageRoute(
-                                          builder: (_) => const NotificationsScreen(),
+                                          builder: (_) =>
+                                              const NotificationsScreen(),
                                         ),
                                       );
                                     },
@@ -288,7 +332,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                         width: 8,
                                         height: 8,
                                         decoration: const BoxDecoration(
-                                          color: Color(0xFF10B981),
+                                          color: VyColors.gold,
                                           shape: BoxShape.circle,
                                         ),
                                       ),
@@ -304,7 +348,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             color: Colors.white70,
                             onTap: () {
                               Navigator.of(context).push(
-                                MaterialPageRoute(builder: (_) => const SettingsHubScreen()),
+                                MaterialPageRoute(
+                                  builder: (_) => const SettingsHubScreen(),
+                                ),
                               );
                             },
                           ),
@@ -313,7 +359,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                   ),
                 ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

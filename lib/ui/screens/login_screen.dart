@@ -10,6 +10,7 @@ import 'package:googleapis/calendar/v3.dart' show CalendarApi;
 
 import '../vyoma_theme.dart';
 import '../../core/secrets.dart';
+import '../../core/widgets/vy_loader.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -462,10 +463,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ? const SizedBox(
                           width: 20,
                           height: 20,
-                          child: CircularProgressIndicator(
-                            color: Colors.black,
-                            strokeWidth: 2,
-                          ),
+                          child: VyLoader(),
                         )
                       : const Icon(Icons.g_mobiledata_rounded, size: 36),
                   label: Text(

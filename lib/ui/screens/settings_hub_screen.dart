@@ -7,8 +7,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/user_service.dart';
 import '../../core/telemetry_service.dart';
 import '../../core/ai_service.dart';
+import '../../core/theme/app_theme.dart';
 import '../widgets/glass_card.dart';
 import '../onboarding_screen.dart';
+import '../../features/anti_goals/presentation/screens/anti_goals_screen.dart';
+import '../../features/dharma_map/presentation/screens/dharma_map_screen.dart';
 
 class SettingsHubScreen extends StatefulWidget {
   const SettingsHubScreen({super.key});
@@ -204,6 +207,24 @@ class _SettingsHubScreenState extends State<SettingsHubScreen> {
             ),
             
             const SizedBox(height: 32),
+            _sectionHeader('PRACTICE'),
+            _buildNavTile(
+              title: 'Dharma Map',
+              subtitle: 'three-month chapters of who you are becoming.',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const DharmaMapScreen()),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _buildNavTile(
+              title: 'Anti-Goals',
+              subtitle: 'name what you refuse to become.',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const AntiGoalsScreen()),
+              ),
+            ),
+
+            const SizedBox(height: 32),
             _sectionHeader('🌐 YOUR ECOSYSTEM'),
             _buildEcosystemList(),
 
@@ -237,6 +258,51 @@ class _SettingsHubScreenState extends State<SettingsHubScreen> {
     );
   }
 
+  Widget _buildNavTile({
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return GlassCard(
+      padding: const EdgeInsets.all(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.arrow_forward_ios_rounded,
+              color: AppColors.gold,
+              size: 14,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildPrivacyTile({
     required String title,
     required String subtitle,
@@ -260,7 +326,7 @@ class _SettingsHubScreenState extends State<SettingsHubScreen> {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeThumbColor: const Color(0xFF06B6D4),
+            activeThumbColor: AppColors.gold,
           ),
         ],
       ),
@@ -291,7 +357,7 @@ class _SettingsHubScreenState extends State<SettingsHubScreen> {
                     Icon(
                       d['platform'].toString().toLowerCase().contains('mac') || d['platform'].toString().toLowerCase().contains('win') 
                           ? Icons.laptop : Icons.phone_iphone,
-                      color: active ? const Color(0xFF06B6D4) : Colors.white24,
+                      color: active ? AppColors.gold : Colors.white24,
                       size: 20,
                     ),
                     const SizedBox(width: 12),
@@ -299,7 +365,7 @@ class _SettingsHubScreenState extends State<SettingsHubScreen> {
                       child: Text(d['platform'], style: TextStyle(color: active ? Colors.white : Colors.white54)),
                     ),
                     if (active)
-                      const Text("ONLINE", style: TextStyle(color: Color(0xFF10B981), fontSize: 10, fontWeight: FontWeight.bold)),
+                      Text("ONLINE", style: TextStyle(color: AppColors.gold, fontSize: 10, fontWeight: FontWeight.bold)),
                   ],
                 ),
               );

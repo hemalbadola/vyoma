@@ -5,12 +5,14 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import '../../tutorial/tutorial_keys.dart';
 import '../theme/vyoma_colors.dart';
+import '../../core/theme/vyoma_tokens.dart';
 import '../war_room_viewmodel.dart';
 import 'pending_action_card.dart';
+import '../../core/widgets/vy_loader.dart';
+import '../../core/widgets/vy_logo.dart';
 
 sealed class _ChatBlock {
   const _ChatBlock();
@@ -518,13 +520,10 @@ class _ChatSheetState extends State<ChatSheet> with TickerProviderStateMixin {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
+            const SizedBox(
               width: 14,
               height: 14,
-              child: CircularProgressIndicator(
-                strokeWidth: 1.5,
-                color: kAccent.withValues(alpha: 0.6),
-              ),
+              child: VyLoader(),
             ),
             const SizedBox(width: 10),
             Text(
@@ -541,10 +540,10 @@ class _ChatSheetState extends State<ChatSheet> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     // Refined palette
     const kSurface = Color(0xFF0A0D0F);
-    const kVyomaBubble = Color(0xFF0C1214);
-    final kVyomaBorder = const Color(0xFF059669).withValues(alpha: 0.15);
-    const kAccent = Color(0xFF10B981);
-    const kAccentDim = Color(0xFF059669);
+    const kVyomaBubble = VyColors.surface1;
+    final kVyomaBorder = const Color(0xFF8A7248).withValues(alpha: 0.25);
+    const kAccent = VyColors.gold;
+    const kAccentDim = VyColors.goldDim;
     final bubbleMaxWidth = math.min(MediaQuery.of(context).size.width * 0.82, 860.0);
 
     return DropTarget(
@@ -592,11 +591,7 @@ class _ChatSheetState extends State<ChatSheet> with TickerProviderStateMixin {
                      icon: const Icon(Icons.arrow_back_ios, color: Colors.white54, size: 20),
                      onPressed: () => Navigator.pop(context),
                    ),
-                   SvgPicture.asset(
-                     'vyoma-icon-192.svg',
-                     width: 18,
-                     height: 18,
-                   ),
+                  const VyMark(size: 28),
                    // Status Indicators
                    Consumer<WarRoomViewModel>(
                      builder: (context, vm, _) {
@@ -1132,7 +1127,7 @@ class _ChatSheetState extends State<ChatSheet> with TickerProviderStateMixin {
                 color: Colors.transparent,
                 child: InkWell(
                   borderRadius: BorderRadius.circular(14),
-                  splashColor: const Color(0xFF10B981).withValues(alpha: 0.06),
+                  splashColor: VyColors.goldGlow,
                   onTap: () {
                     if (s['title'] == "SYNC TIMETABLE") {
                        vm.submitCommand("I want to upload my timetable image.");
@@ -1153,10 +1148,10 @@ class _ChatSheetState extends State<ChatSheet> with TickerProviderStateMixin {
                           width: 36,
                           height: 36,
                           decoration: BoxDecoration(
-                            color: const Color(0xFF10B981).withValues(alpha: 0.08),
+                            color: VyColors.goldGlow,
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: Icon(s['icon'] as IconData, color: const Color(0xFF10B981).withValues(alpha: 0.6), size: 18),
+                          child: Icon(s['icon'] as IconData, color: VyColors.gold, size: 18),
                         ),
                         const SizedBox(width: 14),
                         Expanded(
@@ -1206,7 +1201,7 @@ class _ChatSheetState extends State<ChatSheet> with TickerProviderStateMixin {
                   child: Text(
                     "/",
                     style: GoogleFonts.jetBrainsMono(
-                      color: const Color(0xFF10B981).withValues(alpha: 0.6),
+                      color: VyColors.gold,
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                     ),
@@ -1310,7 +1305,7 @@ class _AnimatedSendButtonState extends State<_AnimatedSendButton> {
 
   @override
   Widget build(BuildContext context) {
-    const kAccent = Color(0xFF10B981);
+    const kAccent = VyColors.gold;
     
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -1390,9 +1385,7 @@ class _CopyButtonState extends State<_CopyButton> {
 
   @override
   Widget build(BuildContext context) {
-    final color = _copied
-        ? const Color(0xFF10B981)
-        : VyomaColors.textMuted;
+    final color = _copied ? VyColors.gold : VyomaColors.textMuted;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: GestureDetector(

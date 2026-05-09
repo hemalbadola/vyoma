@@ -1,24 +1,33 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../theme/vyoma_colors.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../core/ai_service.dart';
+import '../../core/models/daily_stats.dart';
 import '../../core/memory_service.dart';
+import '../../core/services/daily_stats_store.dart';
+import '../../core/services/focus_ranking_service.dart';
 import '../../core/task_service.dart';
+import '../../core/widgets/vy_section_label.dart';
+import '../../features/progress/presentation/widgets/streak_chain_bar.dart';
+import '../../features/progress/presentation/widgets/weekly_focus_line_chart.dart';
+import '../../features/progress/presentation/widgets/weekly_focus_heatmap.dart';
+import '../../features/progress/presentation/widgets/you_vs_squad_bar.dart';
+import '../../features/cognitive_load/presentation/widgets/load_forecast_card.dart';
+import '../../features/shadow/presentation/widgets/shadow_pattern_card.dart';
 import '../war_room_viewmodel.dart';
 
 class IntelTab extends StatelessWidget {
   const IntelTab({super.key});
 
-
-
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<WarRoomViewModel>();
     final memory = context.watch<MemoryService>();
+    final statsStore = context.read<DailyStatsStore>();
+    final rankingService = context.read<FocusRankingService>();
 
     final metrics = vm.currentMetrics;
     final logs = memory.getAllLogs();
@@ -36,57 +45,110 @@ class IntelTab extends StatelessWidget {
 
     final taskService = Provider.of<TaskService>(context, listen: false);
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 120),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header
-              Text(
-                'Progress',
-                style: GoogleFonts.inter(
-                  color: VyomaColors.textPrimary,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.3,
-                ),
+    return FutureBuilder<_HabitMetrics>(
+      future: _loadHabitMetrics(statsStore),
+      builder: (context, snapshot) {
+        final habit = snapshot.data;
+        final journalStreak = habit?.journalStreak ?? vm.journalStreakDays;
+        final focusMinutesThisWeek = habit?.focusMinutesThisWeek ?? 0;
+        final last7Days = habit?.last7Days ?? const [];
+        final last14Days = habit?.last14Days ?? const [];
+        final bestStreak = habit?.bestStreak ?? journalStreak;
+        return SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 120),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header
+                  Text(
+                    'Progress',
+                    style: TextStyle(
+                      color: VyomaColors.textPrimary,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  StreakChainBar(
+                    currentStreak: journalStreak,
+                    bestStreak: bestStreak,
+                  ),
+                  const SizedBox(height: 24),
+
+                  // The Shadow — surfaces a deferral pattern when severe enough.
+                  // Rendered as the first card so users notice before metrics.
+                  const ShadowPatternCard(),
+                  const SizedBox(height: 16),
+
+                  // 7-day cognitive load forecast based on task deadlines.
+                  const LoadForecastCard(),
+                  const SizedBox(height: 16),
+
+                  // Momentum Ring
+                  _buildMomentumCard(clarity, metrics),
+                  const SizedBox(height: 16),
+
+                  // Metric Cards Row
+                  _buildMetricRow(metrics, insights),
+                  const SizedBox(height: 24),
+                  const VySectionLabel('FOCUS TREND'),
+                  const SizedBox(height: 8),
+                  WeeklyFocusLineChart(last14Days: last14Days),
+                  const SizedBox(height: 24),
+                  const VySectionLabel('THIS WEEK'),
+                  const SizedBox(height: 8),
+                  WeeklyFocusHeatmap(last7Days: last7Days),
+                  const SizedBox(height: 24),
+                  FutureBuilder<int>(
+                    future: rankingService
+                        .getSquadAverageFocusMinutesThisWeek(),
+                    builder: (context, squadSnap) {
+                      final squadAvg = squadSnap.data ?? 0;
+                      if (squadAvg <= 0) {
+                        return const SizedBox.shrink();
+                      }
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const VySectionLabel('YOU VS SQUAD'),
+                          const SizedBox(height: 8),
+                          YouVsSquadBar(
+                            yourMinutes: focusMinutesThisWeek,
+                            squadAverageMinutes: squadAvg,
+                          ),
+                          const SizedBox(height: 24),
+                        ],
+                      );
+                    },
+                  ),
+
+                  // Weekly Retrospective
+                  _buildWeeklyRetro(taskService),
+                  const SizedBox(height: 24),
+
+                  // AI Coach Digest
+                  _buildCoachDigest(journalStreak, focusMinutesThisWeek),
+                  const SizedBox(height: 24),
+
+                  // Activity Log
+                  _buildActivitySection(logs),
+                ],
               ),
-              const SizedBox(height: 4),
-              Text(
-                'Your weekly performance overview',
-                style: GoogleFonts.inter(color: VyomaColors.textMuted, fontSize: 13),
-              ),
-              const SizedBox(height: 24),
-
-              // Momentum Ring
-              _buildMomentumCard(clarity, metrics),
-              const SizedBox(height: 16),
-
-              // Metric Cards Row
-              _buildMetricRow(metrics, insights),
-              const SizedBox(height: 24),
-
-              // Weekly Retrospective
-              _buildWeeklyRetro(taskService),
-              const SizedBox(height: 24),
-
-              // AI Coach Digest
-              _buildCoachDigest(insights, metrics, vm.journalStreakDays),
-              const SizedBox(height: 24),
-
-              // Activity Log
-              _buildActivitySection(logs),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildMomentumCard(_ClarityScore clarity, ProductivityMetrics metrics) {
+  Widget _buildMomentumCard(
+    _ClarityScore clarity,
+    ProductivityMetrics metrics,
+  ) {
     final score = int.tryParse(clarity.scoreLabel) ?? 0;
     final hasScore = clarity.scoreLabel != 'Baseline pending';
     final progress = hasScore ? (score / 100).clamp(0.0, 1.0) : 0.0;
@@ -94,18 +156,15 @@ class IntelTab extends StatelessWidget {
     final ringColor = score >= 70
         ? VyomaColors.accent
         : score >= 40
-            ? VyomaColors.warning
-            : VyomaColors.error;
+        ? VyomaColors.warning
+        : VyomaColors.error;
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            ringColor.withValues(alpha: 0.06),
-            VyomaColors.bgCard,
-          ],
+          colors: [ringColor.withValues(alpha: 0.06), VyomaColors.bgCard],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -137,7 +196,7 @@ class IntelTab extends StatelessWidget {
                   children: [
                     Text(
                       hasScore ? '$score' : '—',
-                      style: GoogleFonts.inter(
+                      style: TextStyle(
                         color: VyomaColors.textPrimary,
                         fontSize: hasScore ? 24 : 18,
                         fontWeight: FontWeight.w700,
@@ -146,7 +205,7 @@ class IntelTab extends StatelessWidget {
                     if (hasScore)
                       Text(
                         '%',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(
                           color: VyomaColors.textMuted,
                           fontSize: 11,
                           fontWeight: FontWeight.w500,
@@ -164,7 +223,7 @@ class IntelTab extends StatelessWidget {
               children: [
                 Text(
                   'MOMENTUM',
-                  style: GoogleFonts.inter(
+                  style: TextStyle(
                     color: VyomaColors.textMuted,
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
@@ -173,10 +232,8 @@ class IntelTab extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  hasScore
-                      ? _momentumLabel(score)
-                      : 'Building baseline',
-                  style: GoogleFonts.inter(
+                  hasScore ? _momentumLabel(score) : 'Building baseline',
+                  style: TextStyle(
                     color: VyomaColors.textPrimary,
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
@@ -188,7 +245,7 @@ class IntelTab extends StatelessWidget {
                   hasScore
                       ? clarity.rationale
                       : 'Complete a focus session and one reflection to start tracking.',
-                  style: GoogleFonts.inter(
+                  style: TextStyle(
                     color: VyomaColors.textSecondary,
                     fontSize: 12,
                     height: 1.4,
@@ -246,7 +303,9 @@ class IntelTab extends StatelessWidget {
           return Column(
             children: cards.asMap().entries.map((e) {
               return Padding(
-                padding: EdgeInsets.only(bottom: e.key < cards.length - 1 ? 10 : 0),
+                padding: EdgeInsets.only(
+                  bottom: e.key < cards.length - 1 ? 10 : 0,
+                ),
                 child: _buildMetricCard(e.value),
               ).animate(delay: (80 * e.key).ms).fadeIn();
             }).toList(),
@@ -257,7 +316,9 @@ class IntelTab extends StatelessWidget {
           children: cards.asMap().entries.map((e) {
             return Expanded(
               child: Padding(
-                padding: EdgeInsets.only(right: e.key < cards.length - 1 ? 10 : 0),
+                padding: EdgeInsets.only(
+                  right: e.key < cards.length - 1 ? 10 : 0,
+                ),
                 child: _buildMetricCard(e.value),
               ).animate(delay: (80 * e.key).ms).fadeIn(),
             );
@@ -277,13 +338,13 @@ class IntelTab extends StatelessWidget {
     final trendIcon = data.trend > 0
         ? Icons.trending_up_rounded
         : data.trend < 0
-            ? Icons.trending_down_rounded
-            : Icons.trending_flat_rounded;
+        ? Icons.trending_down_rounded
+        : Icons.trending_flat_rounded;
     final trendColor = data.trend > 0
         ? VyomaColors.accent
         : data.trend < 0
-            ? VyomaColors.error
-            : VyomaColors.textMuted;
+        ? VyomaColors.error
+        : VyomaColors.textMuted;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -313,7 +374,7 @@ class IntelTab extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             data.value,
-            style: GoogleFonts.jetBrainsMono(
+            style: TextStyle(fontFeatures: const [FontFeature.tabularFigures()],
               color: VyomaColors.textPrimary,
               fontSize: 26,
               fontWeight: FontWeight.w600,
@@ -322,7 +383,7 @@ class IntelTab extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             data.label,
-            style: GoogleFonts.inter(
+            style: TextStyle(
               color: VyomaColors.textSecondary,
               fontSize: 12,
               fontWeight: FontWeight.w500,
@@ -331,7 +392,7 @@ class IntelTab extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             data.delta,
-            style: GoogleFonts.inter(
+            style: TextStyle(
               color: VyomaColors.textMuted,
               fontSize: 11,
             ),
@@ -351,8 +412,14 @@ class IntelTab extends StatelessWidget {
 
         final allData = snapshot.data!;
         final now = DateTime.now();
-        final weekAgoStr = now.subtract(const Duration(days: 7)).toIso8601String().substring(0, 10);
-        final twoWeeksAgoStr = now.subtract(const Duration(days: 14)).toIso8601String().substring(0, 10);
+        final weekAgoStr = now
+            .subtract(const Duration(days: 7))
+            .toIso8601String()
+            .substring(0, 10);
+        final twoWeeksAgoStr = now
+            .subtract(const Duration(days: 14))
+            .toIso8601String()
+            .substring(0, 10);
 
         // Split into this week and last week
         int thisWeekFocus = 0, lastWeekFocus = 0;
@@ -385,12 +452,22 @@ class IntelTab extends StatelessWidget {
         for (int i = 6; i >= 0; i--) {
           final date = now.subtract(Duration(days: i));
           final dateStr = date.toIso8601String().substring(0, 10);
-          final dayLabel = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][date.weekday - 1];
-          bars.add(_DayBar(
-            label: dayLabel,
-            focusMinutes: dailyFocus[dateStr] ?? 0,
-            isToday: i == 0,
-          ));
+          final dayLabel = [
+            'Mon',
+            'Tue',
+            'Wed',
+            'Thu',
+            'Fri',
+            'Sat',
+            'Sun',
+          ][date.weekday - 1];
+          bars.add(
+            _DayBar(
+              label: dayLabel,
+              focusMinutes: dailyFocus[dateStr] ?? 0,
+              isToday: i == 0,
+            ),
+          );
         }
 
         final maxFocus = bars.map((b) => b.focusMinutes).fold(0, math.max);
@@ -403,7 +480,7 @@ class IntelTab extends StatelessWidget {
           children: [
             Text(
               'WEEKLY RETROSPECTIVE',
-              style: GoogleFonts.inter(
+              style: TextStyle(
                 color: VyomaColors.textMuted,
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
@@ -429,7 +506,10 @@ class IntelTab extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: bars.map((bar) {
                         final height = maxFocus > 0
-                            ? (bar.focusMinutes / maxFocus * 80).clamp(4.0, 80.0)
+                            ? (bar.focusMinutes / maxFocus * 80).clamp(
+                                4.0,
+                                80.0,
+                              )
                             : 4.0;
                         return Expanded(
                           child: Padding(
@@ -440,7 +520,7 @@ class IntelTab extends StatelessWidget {
                                 if (bar.focusMinutes > 0)
                                   Text(
                                     (bar.focusMinutes / 60).toStringAsFixed(1),
-                                    style: GoogleFonts.jetBrainsMono(
+                                    style: TextStyle(fontFeatures: const [FontFeature.tabularFigures()],
                                       color: VyomaColors.textMuted,
                                       fontSize: 8,
                                     ),
@@ -452,17 +532,23 @@ class IntelTab extends StatelessWidget {
                                   decoration: BoxDecoration(
                                     color: bar.isToday
                                         ? VyomaColors.accent
-                                        : VyomaColors.accent.withValues(alpha: 0.3),
+                                        : VyomaColors.accent.withValues(
+                                            alpha: 0.3,
+                                          ),
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
                                   bar.label,
-                                  style: GoogleFonts.inter(
-                                    color: bar.isToday ? VyomaColors.textPrimary : VyomaColors.textMuted,
+                                  style: TextStyle(
+                                    color: bar.isToday
+                                        ? VyomaColors.textPrimary
+                                        : VyomaColors.textMuted,
                                     fontSize: 9,
-                                    fontWeight: bar.isToday ? FontWeight.w600 : FontWeight.w400,
+                                    fontWeight: bar.isToday
+                                        ? FontWeight.w600
+                                        : FontWeight.w400,
                                   ),
                                 ),
                               ],
@@ -486,7 +572,10 @@ class IntelTab extends StatelessWidget {
                         'Tasks',
                         '$thisWeekTasks',
                         delta: lastWeekTasks > 0
-                            ? ((thisWeekTasks - lastWeekTasks) / lastWeekTasks * 100).round()
+                            ? ((thisWeekTasks - lastWeekTasks) /
+                                      lastWeekTasks *
+                                      100)
+                                  .round()
                             : 0,
                       ),
                       const SizedBox(width: 24),
@@ -494,7 +583,10 @@ class IntelTab extends StatelessWidget {
                         'Distractions',
                         '$thisWeekDistractions',
                         delta: lastWeekDistractions > 0
-                            ? -((thisWeekDistractions - lastWeekDistractions) / lastWeekDistractions * 100).round()
+                            ? -((thisWeekDistractions - lastWeekDistractions) /
+                                      lastWeekDistractions *
+                                      100)
+                                  .round()
                             : 0,
                         invertColor: true,
                       ),
@@ -509,9 +601,16 @@ class IntelTab extends StatelessWidget {
     );
   }
 
-  Widget _buildRetroStat(String label, String value, {int delta = 0, bool invertColor = false}) {
+  Widget _buildRetroStat(
+    String label,
+    String value, {
+    int delta = 0,
+    bool invertColor = false,
+  }) {
     final isPositive = invertColor ? delta < 0 : delta > 0;
-    final deltaColor = delta == 0 ? VyomaColors.textMuted : (isPositive ? VyomaColors.accent : VyomaColors.error);
+    final deltaColor = delta == 0
+        ? VyomaColors.textMuted
+        : (isPositive ? VyomaColors.accent : VyomaColors.error);
     final deltaPrefix = delta > 0 ? '+' : '';
 
     return Expanded(
@@ -520,7 +619,7 @@ class IntelTab extends StatelessWidget {
         children: [
           Text(
             label.toUpperCase(),
-            style: GoogleFonts.inter(
+            style: TextStyle(
               color: VyomaColors.textMuted,
               fontSize: 9,
               fontWeight: FontWeight.w600,
@@ -530,7 +629,7 @@ class IntelTab extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             value,
-            style: GoogleFonts.jetBrainsMono(
+            style: TextStyle(fontFeatures: const [FontFeature.tabularFigures()],
               color: VyomaColors.textPrimary,
               fontSize: 18,
               fontWeight: FontWeight.w600,
@@ -539,79 +638,24 @@ class IntelTab extends StatelessWidget {
           if (delta != 0)
             Text(
               '$deltaPrefix$delta% vs last week',
-              style: GoogleFonts.inter(
-                color: deltaColor,
-                fontSize: 9,
-              ),
+              style: TextStyle(color: deltaColor, fontSize: 9),
             ),
         ],
       ),
     );
   }
 
-  Widget _buildCoachDigest(_IntelInsights insights, ProductivityMetrics metrics, int streakDays) {
-    final digestLines = <_DigestLine>[];
-
-    // Focus window insight
-    if (insights.bestFocusWindow != 'Build baseline this week') {
-      digestLines.add(_DigestLine(
-        icon: Icons.wb_sunny_outlined,
-        text: 'You focus best in the ${insights.bestFocusWindow.toLowerCase()}.',
-        color: VyomaColors.accent,
-      ));
-    }
-
-    // Task completion
-    if (metrics.tasksCompleted > 0) {
-      digestLines.add(_DigestLine(
-        icon: Icons.task_alt_rounded,
-        text: '${metrics.tasksCompleted} task${metrics.tasksCompleted > 1 ? 's' : ''} completed — ${insights.taskDeltaText}.',
-        color: VyomaColors.info,
-      ));
-    }
-
-    // Primary friction
-    if (insights.primaryFriction != 'Log 3 outcomes to reveal friction') {
-      digestLines.add(_DigestLine(
-        icon: Icons.report_gmailerrorred_rounded,
-        text: 'Top friction: "${insights.primaryFriction}" — address this to unlock flow.',
-        color: VyomaColors.warning,
-      ));
-    }
-
-    // Journal streak
-    if (streakDays > 0) {
-      digestLines.add(_DigestLine(
-        icon: Icons.local_fire_department_rounded,
-        text: '$streakDays-day journal streak. Consistency builds clarity.',
-        color: VyomaColors.error,
-      ));
-    }
-
-    // Dominant theme
-    if (insights.dominantTheme != 'Capture first vault entry') {
-      digestLines.add(_DigestLine(
-        icon: Icons.tag_rounded,
-        text: 'Recurring theme: "${insights.dominantTheme}" — this needs your attention.',
-        color: VyomaColors.textSecondary,
-      ));
-    }
-
-    // Fallback if no insights yet
-    if (digestLines.isEmpty) {
-      digestLines.add(_DigestLine(
-        icon: Icons.lightbulb_outline_rounded,
-        text: 'Complete a few focus sessions and journal entries to unlock personalized insights.',
-        color: VyomaColors.textMuted,
-      ));
-    }
-
+  Widget _buildCoachDigest(int streakDays, int focusMinutesThisWeek) {
+    final coachMessage = _buildCoachMessage(
+      journalStreak: streakDays,
+      focusMinutesThisWeek: focusMinutesThisWeek,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'AI COACH',
-          style: GoogleFonts.inter(
+          style: TextStyle(
             color: VyomaColors.textMuted,
             fontSize: 11,
             fontWeight: FontWeight.w600,
@@ -627,44 +671,85 @@ class IntelTab extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: VyomaColors.borderSubtle, width: 0.5),
           ),
-          child: Column(
-            children: digestLines.asMap().entries.map((e) {
-              final line = e.value;
-              final isLast = e.key == digestLines.length - 1;
-
-              return Padding(
-                padding: EdgeInsets.only(bottom: isLast ? 0 : 14),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 26,
-                      height: 26,
-                      decoration: BoxDecoration(
-                        color: line.color.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(7),
-                      ),
-                      child: Icon(line.icon, size: 14, color: line.color.withValues(alpha: 0.7)),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        line.text,
-                        style: GoogleFonts.inter(
-                          color: VyomaColors.textSecondary,
-                          fontSize: 13,
-                          height: 1.5,
-                        ),
-                      ),
-                    ),
-                  ],
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  color: VyomaColors.accent.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(7),
                 ),
-              );
-            }).toList(),
+                child: Icon(
+                  Icons.auto_awesome,
+                  size: 14,
+                  color: VyomaColors.accent.withValues(alpha: 0.7),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  coachMessage,
+                  style: TextStyle(
+                    color: VyomaColors.textSecondary,
+                    fontSize: 13,
+                    height: 1.5,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ],
     ).animate().fadeIn(delay: 300.ms);
+  }
+
+  String _buildCoachMessage({
+    required int journalStreak,
+    required int focusMinutesThisWeek,
+  }) {
+    if (journalStreak >= 7 && focusMinutesThisWeek >= 600) {
+      return 'On a roll — keep protecting your focus and reflections.';
+    } else if (journalStreak >= 3) {
+      return 'You\'re building a habit. Keep the streak alive today.';
+    } else if (focusMinutesThisWeek >= 300) {
+      return 'Good focus this week. Add short reflections to lock in learning.';
+    } else {
+      return 'Start small: one focus block and one line in the Vault today.';
+    }
+  }
+
+  Future<_HabitMetrics> _loadHabitMetrics(DailyStatsStore store) async {
+    final now = DateTime.now();
+    var focusMinutesThisWeek = 0;
+    final last7Days = <DailyStats>[];
+    final last14Days = <DailyStats>[];
+    for (var i = 0; i < 7; i++) {
+      final day = now.subtract(Duration(days: 6 - i));
+      final stats = await store.loadForDate(day);
+      last7Days.add(stats);
+      focusMinutesThisWeek += stats.focusMinutes;
+    }
+    for (var i = 0; i < 14; i++) {
+      final day = now.subtract(Duration(days: 13 - i));
+      last14Days.add(await store.loadForDate(day));
+    }
+
+    final streak = await store.computeJournalStreakUpTo(now);
+    var best = streak;
+    for (var i = 0; i < 30; i++) {
+      final candidateDate = now.subtract(Duration(days: i));
+      final s = await store.computeJournalStreakUpTo(candidateDate);
+      if (s > best) best = s;
+    }
+    return _HabitMetrics(
+      journalStreak: streak,
+      focusMinutesThisWeek: focusMinutesThisWeek,
+      last7Days: last7Days,
+      last14Days: last14Days,
+      bestStreak: best,
+    );
   }
 
   Widget _buildActivitySection(List<AgentLog> logs) {
@@ -673,7 +758,7 @@ class IntelTab extends StatelessWidget {
       children: [
         Text(
           'RECENT ACTIVITY',
-          style: GoogleFonts.inter(
+          style: TextStyle(
             color: VyomaColors.textMuted,
             fontSize: 11,
             fontWeight: FontWeight.w600,
@@ -695,7 +780,7 @@ class IntelTab extends StatelessWidget {
               children: [
                 Text(
                   'No activity yet',
-                  style: GoogleFonts.inter(
+                  style: TextStyle(
                     color: VyomaColors.textPrimary,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -704,7 +789,7 @@ class IntelTab extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   'Start with these:\n• Schedule a focus block\n• Complete one task\n• Write a journal reflection',
-                  style: GoogleFonts.inter(
+                  style: TextStyle(
                     color: VyomaColors.textSecondary,
                     fontSize: 13,
                     height: 1.5,
@@ -721,7 +806,10 @@ class IntelTab extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 6),
               child: Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
                 decoration: BoxDecoration(
                   color: VyomaColors.bgCard,
                   borderRadius: BorderRadius.circular(12),
@@ -738,7 +826,9 @@ class IntelTab extends StatelessWidget {
                       width: 24,
                       height: 24,
                       decoration: BoxDecoration(
-                        color: (success ? VyomaColors.accent : VyomaColors.error).withValues(alpha: 0.1),
+                        color:
+                            (success ? VyomaColors.accent : VyomaColors.error)
+                                .withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Icon(
@@ -751,15 +841,17 @@ class IntelTab extends StatelessWidget {
                     Expanded(
                       child: Text(
                         log.actionType,
-                        style: GoogleFonts.inter(
-                          color: VyomaColors.textPrimary.withValues(alpha: 0.85),
+                        style: TextStyle(
+                          color: VyomaColors.textPrimary.withValues(
+                            alpha: 0.85,
+                          ),
                           fontSize: 13,
                         ),
                       ),
                     ),
                     Text(
                       '${log.timestamp.hour.toString().padLeft(2, '0')}:${log.timestamp.minute.toString().padLeft(2, '0')}',
-                      style: GoogleFonts.jetBrainsMono(
+                      style: TextStyle(fontFeatures: const [FontFeature.tabularFigures()],
                         color: VyomaColors.textMuted,
                         fontSize: 11,
                       ),
@@ -775,18 +867,28 @@ class IntelTab extends StatelessWidget {
 
   // --- Data Derivation (preserved logic) ---
 
-  _IntelInsights _deriveInsights(List<AgentLog> logs, List<JournalEntry> entries) {
+  _IntelInsights _deriveInsights(
+    List<AgentLog> logs,
+    List<JournalEntry> entries,
+  ) {
     final now = DateTime.now();
-    final last7 = logs.where((l) => now.difference(l.timestamp).inDays < 7).toList();
+    final last7 = logs
+        .where((l) => now.difference(l.timestamp).inDays < 7)
+        .toList();
     final prev7 = logs
-        .where((l) => now.difference(l.timestamp).inDays >= 7 && now.difference(l.timestamp).inDays < 14)
+        .where(
+          (l) =>
+              now.difference(l.timestamp).inDays >= 7 &&
+              now.difference(l.timestamp).inDays < 14,
+        )
         .toList();
 
     int successCount(List<AgentLog> items) =>
         items.where((e) => e.outcome.toLowerCase() == 'success').length;
     int failCount(List<AgentLog> items) =>
         items.where((e) => e.outcome.toLowerCase() != 'success').length;
-    int energyScore(List<AgentLog> items) => items.fold(0, (sum, e) => sum + e.energyImpact);
+    int energyScore(List<AgentLog> items) =>
+        items.fold(0, (sum, e) => sum + e.energyImpact);
 
     String deltaText(int current, int previous, {bool invertGood = false}) {
       if (current == 0 && previous == 0) return 'no data yet';
@@ -799,7 +901,11 @@ class IntelTab extends StatelessWidget {
 
     final focusDelta = deltaText(energyScore(last7), energyScore(prev7));
     final taskDelta = deltaText(successCount(last7), successCount(prev7));
-    final distractionDelta = deltaText(failCount(last7), failCount(prev7), invertGood: true);
+    final distractionDelta = deltaText(
+      failCount(last7),
+      failCount(prev7),
+      invertGood: true,
+    );
 
     final successByBand = <String, int>{};
     for (final l in last7.where((e) => e.outcome.toLowerCase() == 'success')) {
@@ -809,7 +915,8 @@ class IntelTab extends StatelessWidget {
 
     String bestBand = 'Build baseline this week';
     if (successByBand.isNotEmpty) {
-      final ordered = successByBand.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+      final ordered = successByBand.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
       bestBand = ordered.first.key;
     }
 
@@ -820,7 +927,8 @@ class IntelTab extends StatelessWidget {
 
     String primaryFriction = 'Log 3 outcomes to reveal friction';
     if (failureActions.isNotEmpty) {
-      final ordered = failureActions.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+      final ordered = failureActions.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
       primaryFriction = ordered.first.key;
     }
 
@@ -833,7 +941,8 @@ class IntelTab extends StatelessWidget {
 
     String dominantTheme = 'Capture first vault entry';
     if (tagFrequency.isNotEmpty) {
-      final ordered = tagFrequency.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+      final ordered = tagFrequency.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
       dominantTheme = ordered.first.key;
     }
 
@@ -855,33 +964,51 @@ class IntelTab extends StatelessWidget {
     required int streakDays,
   }) {
     final totalActions = logs.length;
-    final successCount = logs.where((l) => l.outcome.toLowerCase() == 'success').length;
-    final completionRate = totalActions == 0 ? 0.0 : successCount / totalActions;
+    final successCount = logs
+        .where((l) => l.outcome.toLowerCase() == 'success')
+        .length;
+    final completionRate = totalActions == 0
+        ? 0.0
+        : successCount / totalActions;
 
     final distractionPenalty = metrics.distractionCount * 25;
     final focusSignalBase = metrics.focusMinutes + distractionPenalty;
-    final focusQuality = focusSignalBase == 0 ? 0.0 : metrics.focusMinutes / focusSignalBase;
+    final focusQuality = focusSignalBase == 0
+        ? 0.0
+        : metrics.focusMinutes / focusSignalBase;
 
-    final debriefedEvents = logs.where((l) => l.eventId != null && l.eventId!.isNotEmpty).length;
+    final debriefedEvents = logs
+        .where((l) => l.eventId != null && l.eventId!.isNotEmpty)
+        .length;
     final debriefBase = debriefedEvents + pendingDebriefs;
     final debriefRate = debriefBase == 0 ? 0.0 : debriefedEvents / debriefBase;
 
     final vaultConsistency = (streakDays / 5).clamp(0, 1).toDouble();
 
-    final hasSignal = totalActions > 0 || entries.isNotEmpty || metrics.focusMinutes > 0 || metrics.distractionCount > 0;
+    final hasSignal =
+        totalActions > 0 ||
+        entries.isNotEmpty ||
+        metrics.focusMinutes > 0 ||
+        metrics.distractionCount > 0;
     if (!hasSignal) {
       return const _ClarityScore(
         scoreLabel: 'Baseline pending',
-        rationale: 'Complete one focus session and one reflection to establish your score.',
+        rationale:
+            'Complete one focus session and one reflection to establish your score.',
       );
     }
 
-    final weighted = (completionRate * 0.35) + (focusQuality * 0.30) + (debriefRate * 0.20) + (vaultConsistency * 0.15);
+    final weighted =
+        (completionRate * 0.35) +
+        (focusQuality * 0.30) +
+        (debriefRate * 0.20) +
+        (vaultConsistency * 0.15);
     final score = (weighted * 100).round().clamp(0, 100);
 
     return _ClarityScore(
       scoreLabel: '$score',
-      rationale: 'Completion ${(completionRate * 100).round()}% • Focus ${(focusQuality * 100).round()}% • Debrief ${(debriefRate * 100).round()}% • Journal ${streakDays}d streak',
+      rationale:
+          'Completion ${(completionRate * 100).round()}% • Focus ${(focusQuality * 100).round()}% • Debrief ${(debriefRate * 100).round()}% • Journal ${streakDays}d streak',
     );
   }
 
@@ -900,7 +1027,11 @@ class _RingPainter extends CustomPainter {
   final Color color;
   final Color bgColor;
 
-  _RingPainter({required this.progress, required this.color, required this.bgColor});
+  _RingPainter({
+    required this.progress,
+    required this.color,
+    required this.bgColor,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -985,18 +1116,30 @@ class _MetricData {
   });
 }
 
-class _DigestLine {
-  final IconData icon;
-  final String text;
-  final Color color;
-
-  const _DigestLine({required this.icon, required this.text, required this.color});
-}
-
 class _DayBar {
   final String label;
   final int focusMinutes;
   final bool isToday;
 
-  const _DayBar({required this.label, required this.focusMinutes, required this.isToday});
+  const _DayBar({
+    required this.label,
+    required this.focusMinutes,
+    required this.isToday,
+  });
+}
+
+class _HabitMetrics {
+  final int journalStreak;
+  final int focusMinutesThisWeek;
+  final List<DailyStats> last7Days;
+  final List<DailyStats> last14Days;
+  final int bestStreak;
+
+  const _HabitMetrics({
+    required this.journalStreak,
+    required this.focusMinutesThisWeek,
+    required this.last7Days,
+    required this.last14Days,
+    required this.bestStreak,
+  });
 }

@@ -142,20 +142,16 @@ class _TutorialOverlayState extends State<TutorialOverlay> with TickerProviderSt
     EdgeInsets padding,
   ) {
     final measured = _measureHole(context, step);
-    final target = measured ??
-        Rect.fromCenter(
-          center: Offset(screen.width / 2, screen.height / 2),
-          width: 120,
-          height: 120,
-        );
     if (measured == null) {
       _debugLog(
         hypothesisId: 'H2',
         location: 'tutorial_overlay.dart:_buildFrame',
-        message: 'Fallback target rect used',
+        message: 'Target missing, skipping overlay frame',
         data: {'stepId': step.stepId},
       );
+      return const SizedBox.shrink();
     }
+    final target = measured;
 
     final begin = _previousHole == Rect.zero ? target : _previousHole;
 

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/telemetry_service.dart';
 import '../../tutorial/tutorial_controller.dart';
+import '../../core/theme/app_theme.dart';
 import '../widgets/glass_card.dart';
 
 /// Simplified Preferences Screen — manages display and notification settings.
@@ -81,7 +82,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
               child: Row(
                 children: [
                   const Icon(Icons.info_outline,
-                      color: Color(0xFF10B981), size: 20),
+                      color: AppColors.gold, size: 20),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
@@ -102,7 +103,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Row(
                 children: [
-                  const Icon(Icons.school_outlined, color: Color(0xFF10B981), size: 20),
+                  const Icon(Icons.school_outlined, color: AppColors.gold, size: 20),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -141,7 +142,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                     },
                     child: const Text(
                       'REPLAY',
-                      style: TextStyle(color: Color(0xFF10B981)),
+                      style: TextStyle(color: AppColors.gold),
                     ),
                   ),
                 ],
@@ -180,8 +181,8 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
             Switch(
               value: value,
               onChanged: onChanged,
-              activeThumbColor: const Color(0xFF10B981),
-              activeTrackColor: const Color(0xFF10B981).withValues(alpha: 0.35),
+              activeThumbColor: AppColors.gold,
+              activeTrackColor: AppColors.gold.withValues(alpha: 0.35),
             ),
           ],
         ),
@@ -209,7 +210,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                 child: Text(
                   _fmt(value),
                   style: GoogleFonts.jetBrainsMono(
-                      color: const Color(0xFF10B981), fontSize: 16),
+                      color: AppColors.gold, fontSize: 16),
                 ),
               ),
             ),
@@ -230,7 +231,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.sync, color: Color(0xFF10B981), size: 20),
+                  const Icon(Icons.sync, color: AppColors.gold, size: 20),
                   const SizedBox(width: 12),
                   Text(
                     'Multi-Device Accountability',
@@ -276,7 +277,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                           device['platform'].toString().toLowerCase().contains('android') 
                             ? Icons.phone_iphone : Icons.laptop_mac,
                           size: 14,
-                          color: isActive ? const Color(0xFF10B981) : Colors.white24,
+                          color: isActive ? AppColors.gold : Colors.white24,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
@@ -292,13 +293,13 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                              color: AppColors.gold.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                              border: Border.all(color: AppColors.gold.withValues(alpha: 0.3)),
                             ),
                             child: const Text(
                               'LIVE',
-                              style: TextStyle(color: Color(0xFF10B981), fontSize: 8, fontWeight: FontWeight.bold),
+                              style: TextStyle(color: AppColors.gold, fontSize: 8, fontWeight: FontWeight.bold),
                             ),
                           ),
                       ],

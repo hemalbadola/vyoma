@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/models/timetable.dart';
@@ -7,6 +6,7 @@ import '../../core/timetable_service.dart';
 import '../theme/vyoma_colors.dart';
 import '../theme/vyoma_text_styles.dart';
 import '../widgets/weekly_calendar_grid.dart';
+import '../../core/widgets/vy_logo.dart';
 
 class TimetableTab extends StatefulWidget {
   const TimetableTab({super.key});
@@ -92,11 +92,7 @@ class _TimetableTabState extends State<TimetableTab> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      SvgPicture.asset(
-                        'vyoma-icon-192.svg',
-                        width: 18,
-                        height: 18,
-                      ),
+                      const VyMark(size: 18),
                       const SizedBox(width: 8),
                       Text(
                         'SCHEDULE',
@@ -207,11 +203,7 @@ class _TimetableEmptyState extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SvgPicture.asset(
-              'vyoma-icon-192.svg',
-              width: 56,
-              height: 56,
-            ),
+            const VyMark(size: 56),
             const SizedBox(height: 20),
             Text(
               'No classes yet',

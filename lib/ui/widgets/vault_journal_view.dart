@@ -1,20 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/memory_service.dart';
+import '../../core/services/daily_stats_store.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/theme/vyoma_tokens.dart' show VyColors, VyType;
+import '../../core/widgets/vy_card.dart';
+import '../../core/widgets/vy_chip.dart';
+import '../../core/widgets/vy_loader.dart';
+import '../../core/widgets/vy_logo.dart';
 import '../../ui/war_room_viewmodel.dart';
 
 class VaultJournalView extends StatefulWidget {
   final String? initialSeed;
   final bool embedded;
+  final bool oneLineMode;
 
   const VaultJournalView({
     super.key,
     this.initialSeed,
     this.embedded = true,
+    this.oneLineMode = false,
   });
 
   @override
@@ -33,8 +40,16 @@ class _VaultJournalViewState extends State<VaultJournalView> {
   final Set<String> _selectedTags = {};
   List<String> _insights = [];
   final Set<int> _selectedInsightIndexes = {};
+  bool _streakPopped = false;
+  bool _moreToolsExpanded = false;
 
-  static const List<String> _moods = ['focused', 'calm', 'stressed', 'unclear', 'energized'];
+  static const List<String> _moods = [
+    'focused',
+    'calm',
+    'stressed',
+    'unclear',
+    'energized',
+  ];
   static const List<String> _templates = [
     'Brain dump',
     'Daily reflection',
@@ -55,6 +70,13 @@ class _VaultJournalViewState extends State<VaultJournalView> {
     if (widget.initialSeed != null && widget.initialSeed!.trim().isNotEmpty) {
       _journalController.text = widget.initialSeed!.trim();
     }
+    if (widget.oneLineMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _focusNode.requestFocus();
+        }
+      });
+    }
   }
 
   @override
@@ -67,9 +89,11 @@ class _VaultJournalViewState extends State<VaultJournalView> {
   void _applyTemplate(String template) {
     final starter = {
       'Brain dump': 'Everything on my mind right now:\n- ',
-      'Daily reflection': 'Today I noticed...\n\nThe important part was...\n\nTomorrow I will...',
+      'Daily reflection':
+          'Today I noticed...\n\nThe important part was...\n\nTomorrow I will...',
       'Plan tomorrow': 'Top 3 priorities for tomorrow:\n1. \n2. \n3. ',
-      'Name current blocker': 'Current blocker:\n\nWhy this is happening:\n\nFirst counter-move:',
+      'Name current blocker':
+          'Current blocker:\n\nWhy this is happening:\n\nFirst counter-move:',
       'Capture one insight': 'Insight:\n\nEvidence:\n\nAction I will take:',
     }[template]!;
 
@@ -88,7 +112,9 @@ class _VaultJournalViewState extends State<VaultJournalView> {
   Set<String> _autoTagsFromText(String text) {
     final lower = text.toLowerCase();
     final tags = <String>{};
-    if (lower.contains('exam') || lower.contains('assignment') || lower.contains('study')) {
+    if (lower.contains('exam') ||
+        lower.contains('assignment') ||
+        lower.contains('study')) {
       tags.add('study');
     }
     if (lower.contains('deadline') || lower.contains('urgent')) {
@@ -103,7 +129,9 @@ class _VaultJournalViewState extends State<VaultJournalView> {
     if (lower.contains('project') || lower.contains('build')) {
       tags.add('project');
     }
-    if (lower.contains('anxious') || lower.contains('stress') || lower.contains('overwhelmed')) {
+    if (lower.contains('anxious') ||
+        lower.contains('stress') ||
+        lower.contains('overwhelmed')) {
       tags.add('stress');
     }
     return tags;
@@ -117,7 +145,15 @@ class _VaultJournalViewState extends State<VaultJournalView> {
 
   int _actionableEstimate(String text) {
     final lower = text.toLowerCase();
-    final cues = ['will ', 'need to ', 'must ', 'tomorrow', 'next', 'plan', 'deadline'];
+    final cues = [
+      'will ',
+      'need to ',
+      'must ',
+      'tomorrow',
+      'next',
+      'plan',
+      'deadline',
+    ];
     int matches = 0;
     for (final cue in cues) {
       if (lower.contains(cue)) matches++;
@@ -133,13 +169,18 @@ class _VaultJournalViewState extends State<VaultJournalView> {
       }
     }
     if (freq.isEmpty) return 'none';
-    final sorted = freq.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final sorted = freq.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
     return sorted.first.key;
   }
 
   Future<void> _analyzeEntry() async {
     final text = _journalController.text.trim();
     if (text.isEmpty) return;
+    if (widget.oneLineMode) {
+      await _commitEntry();
+      return;
+    }
 
     setState(() => _isAnalyzing = true);
     try {
@@ -147,7 +188,9 @@ class _VaultJournalViewState extends State<VaultJournalView> {
       final insights = await vm.previewJournalInsights(text);
 
       setState(() {
-        _insights = insights.isEmpty ? ['No strong extraction yet. You can still commit this entry.'] : insights;
+        _insights = insights.isEmpty
+            ? ['No strong extraction yet. You can still commit this entry.']
+            : insights;
         _selectedInsightIndexes
           ..clear()
           ..addAll(List.generate(_insights.length, (i) => i));
@@ -169,11 +212,23 @@ class _VaultJournalViewState extends State<VaultJournalView> {
         .toList();
 
     final vm = context.read<WarRoomViewModel>();
+    final statsStore = context.read<DailyStatsStore>();
+    final today = DateTime.now();
+    final previousStreak = vm.journalStreakDays;
     await vm.submitJournalEntry(
       text: text,
       mood: _selectedMood,
       tags: _selectedTags.toList(),
       acceptedInsights: accepted,
+    );
+
+    final currentStats = await statsStore.loadForDate(today);
+    await statsStore.save(
+      currentStats.copyWith(
+        journaled: true,
+        focusMinutes: vm.currentMetrics.focusMinutes,
+        tasksCompleted: vm.currentMetrics.tasksCompleted,
+      ),
     );
 
     _journalController.clear();
@@ -190,6 +245,33 @@ class _VaultJournalViewState extends State<VaultJournalView> {
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) setState(() => _showSuccess = false);
     });
+
+    if (mounted && vm.journalStreakDays > previousStreak) {
+      if (!(MediaQuery.maybeOf(context)?.disableAnimations ?? false)) {
+        setState(() => _streakPopped = true);
+        Future<void>.delayed(const Duration(milliseconds: 260), () {
+          if (mounted) setState(() => _streakPopped = false);
+        });
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Streak +1',
+            style: VyType.body.copyWith(color: VyColors.textPrimary),
+          ),
+          backgroundColor: VyColors.surface1,
+        ),
+      );
+    }
+
+    if (widget.oneLineMode && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Reflection saved, streak protected.')),
+      );
+      Navigator.of(context).maybePop();
+    }
   }
 
   @override
@@ -205,470 +287,640 @@ class _VaultJournalViewState extends State<VaultJournalView> {
             constraints: const BoxConstraints(maxWidth: 1220),
             child: CallbackShortcuts(
               bindings: <ShortcutActivator, VoidCallback>{
-                SingleActivator(LogicalKeyboardKey.enter, meta: true): _commitEntry,
-                SingleActivator(LogicalKeyboardKey.enter, control: true): _commitEntry,
-                SingleActivator(LogicalKeyboardKey.keyE, meta: true): _analyzeEntry,
-                SingleActivator(LogicalKeyboardKey.keyE, control: true): _analyzeEntry,
-                SingleActivator(LogicalKeyboardKey.keyL, meta: true): () => _focusNode.requestFocus(),
-                SingleActivator(LogicalKeyboardKey.keyL, control: true): () => _focusNode.requestFocus(),
+                SingleActivator(LogicalKeyboardKey.enter, meta: true):
+                    _commitEntry,
+                SingleActivator(LogicalKeyboardKey.enter, control: true):
+                    _commitEntry,
+                SingleActivator(LogicalKeyboardKey.keyE, meta: true):
+                    _analyzeEntry,
+                SingleActivator(LogicalKeyboardKey.keyE, control: true):
+                    _analyzeEntry,
+                SingleActivator(LogicalKeyboardKey.keyL, meta: true): () =>
+                    _focusNode.requestFocus(),
+                SingleActivator(LogicalKeyboardKey.keyL, control: true): () =>
+                    _focusNode.requestFocus(),
               },
               child: Focus(
                 autofocus: true,
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    final editorHeight =
-                        (constraints.maxHeight * 0.32).clamp(220.0, 420.0);
+                    final editorHeight = (constraints.maxHeight * 0.32).clamp(
+                      220.0,
+                      420.0,
+                    );
 
                     return SingleChildScrollView(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SvgPicture.asset(
-                          'vyoma-icon-192.svg',
-                          width: 18,
-                          height: 18,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'VAULT',
-                          style: GoogleFonts.inter(
-                            color: const Color(0xFF737373),
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 2.4,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'The Vault',
-                      style: GoogleFonts.dmSans(
-                        color: Colors.white,
-                        fontSize: 34,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: -0.4,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Turn raw experience into usable context. Capture what happened, what it meant, and what changes next.',
-                      style: GoogleFonts.inter(
-                        color: const Color(0xFFA3A3A3),
-                        fontSize: 15,
-                        height: 1.45,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Shortcuts: Cmd/Ctrl+E analyze, Cmd/Ctrl+Enter commit, Cmd/Ctrl+L focus',
-                      style: GoogleFonts.jetBrainsMono(
-                        color: const Color(0xFF6B7280),
-                        fontSize: 10,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF0F1720), Color(0xFF131B28)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFF2A3442), width: 0.9),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Context Capture Protocol',
-                            style: GoogleFonts.inter(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            '1) State facts clearly\n2) Mark the emotional signal\n3) Define the next controllable action',
-                            style: GoogleFonts.inter(
-                              color: const Color(0xFFB6C2CF),
-                              fontSize: 12,
-                              height: 1.45,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Consumer<WarRoomViewModel>(
-                      builder: (context, vm, _) {
-                        final entries = vm.recentJournalEntries;
-                        return Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _MetaPill(label: 'Vault rhythm', value: '${vm.journalStreakDays}d'),
-                            _MetaPill(label: 'Top theme', value: _topTheme(entries.take(20).toList())),
-                            _MetaPill(label: 'Entries', value: '${entries.length}'),
-                          ],
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 20),
-                    Text(
-                      'TEMPLATES',
-                      style: GoogleFonts.inter(
-                        color: const Color(0xFF737373),
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 1.6,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _templates
-                          .map((t) => _ChipButton(label: t, onTap: () => _applyTemplate(t)))
-                          .toList(),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'GUIDED PROMPTS',
-                      style: GoogleFonts.inter(
-                        color: const Color(0xFF737373),
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 1.6,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _guidedPrompts
-                          .map(
-                            (p) => _ChipButton(
-                              label: p,
-                              subtle: true,
-                              onTap: () {
-                                _journalController.text +=
-                                    '${_journalController.text.trim().isEmpty ? '' : '\n\n'}$p\n';
-                                _focusNode.requestFocus();
-                              },
-                            ),
-                          )
-                          .toList(),
-                    ),
-                    const SizedBox(height: 14),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Text(
-                          'Mood',
-                          style: GoogleFonts.inter(color: const Color(0xFF9CA3AF), fontSize: 12),
-                        ),
-                        ..._moods.map((m) {
-                          final active = m == _selectedMood;
-                          return GestureDetector(
-                            onTap: () => setState(() => _selectedMood = m),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 140),
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: active
-                                    ? const Color(0xFF10B981).withValues(alpha: 0.2)
-                                    : const Color(0xFF171B22),
-                                borderRadius: BorderRadius.circular(999),
-                                border: Border.all(
-                                  color: active
-                                      ? const Color(0xFF10B981).withValues(alpha: 0.55)
-                                      : const Color(0xFF2B313B),
+                          if (!widget.embedded &&
+                              Navigator.of(context).canPop())
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: IconButton(
+                                icon: const Icon(
+                                  Icons.arrow_back_ios_new_rounded,
+                                  color: VyColors.textMuted,
+                                  size: 18,
                                 ),
+                                tooltip: 'Back',
+                                onPressed: () => Navigator.of(context).pop(),
                               ),
-                              child: Text(
-                                m,
-                                style: GoogleFonts.jetBrainsMono(
-                                  color: active ? const Color(0xFF34D399) : const Color(0xFF9CA3AF),
+                            ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const VyMark(size: 22),
+                              const SizedBox(width: 8),
+                              Text(
+                                'VAULT',
+                                style: VyType.sectionLabel.copyWith(
                                   fontSize: 10,
+                                  color: VyColors.textMuted,
+                                  letterSpacing: 2.4,
                                 ),
                               ),
-                            ),
-                          );
-                        }),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _selectedTags
-                          .map(
-                            (tag) => _ChipButton(
-                              label: '#$tag',
-                              active: true,
-                              onTap: () => setState(() => _selectedTags.remove(tag)),
-                            ),
-                          )
-                          .toList(),
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        _MetaPill(label: 'Words', value: '${_wordCount(textNow)}'),
-                        const SizedBox(width: 8),
-                        _MetaPill(label: 'Action cues', value: '${_actionableEstimate(textNow)}'),
-                        const SizedBox(width: 8),
-                        _MetaPill(label: 'Auto tags', value: '${_autoTagsFromText(textNow).length}'),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      height: editorHeight,
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF0B0D12),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFF252A35), width: 0.9),
-                        ),
-                        child: Stack(
-                          children: [
-                            TextField(
-                              controller: _journalController,
-                              focusNode: _focusNode,
-                              maxLines: null,
-                              expands: true,
-                              autocorrect: false,
-                              enableSuggestions: false,
-                              smartDashesType: SmartDashesType.disabled,
-                              smartQuotesType: SmartQuotesType.disabled,
-                              keyboardType: TextInputType.visiblePassword,
-                              obscureText: false,
-                              spellCheckConfiguration: SpellCheckConfiguration.disabled(),
-                              style: GoogleFonts.inter(
-                                color: Colors.white,
-                                fontSize: 18,
-                                height: 1.7,
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'The Vault',
+                            style: VyType.display.copyWith(fontSize: 32),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Turn raw experience into usable context. Capture what happened, what it meant, and what changes next.',
+                            style: VyType.bodyMuted.copyWith(height: 1.45),
+                          ),
+                          const SizedBox(height: 10),
+                          Consumer<WarRoomViewModel>(
+                            builder: (context, vm, _) {
+                              final streak = vm.journalStreakDays;
+                              return Row(
+                                children: [
+                                  AnimatedScale(
+                                    scale: _streakPopped ? 1.08 : 1.0,
+                                    duration: const Duration(milliseconds: 180),
+                                    curve: Curves.easeOut,
+                                    child: Text(
+                                      'Journal streak: $streak day${streak == 1 ? '' : 's'}',
+                                      style: VyType.bodyMuted.copyWith(
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  AnimatedOpacity(
+                                    opacity: streak >= 3 ? 1 : 0,
+                                    duration: const Duration(milliseconds: 180),
+                                    child: const Icon(
+                                      Icons.local_fire_department_outlined,
+                                      color: AppColors.goldDim,
+                                      size: 16,
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          if (widget.oneLineMode) ...[
+                            VyCard(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'One-line reflection',
+                                    style: VyText.titleMedium,
+                                  ),
+                                  const SizedBox(height: VySpacing.xs),
+                                  Text(
+                                    'Write one sentence about how today went.',
+                                    style: VyText.bodyMedium,
+                                  ),
+                                  const SizedBox(height: VySpacing.md),
+                                  TextField(
+                                    controller: _journalController,
+                                    focusNode: _focusNode,
+                                    maxLines: 2,
+                                    style: VyText.bodyLarge,
+                                    decoration: InputDecoration(
+                                      hintText:
+                                          'One line that captures your day...',
+                                      hintStyle: VyText.bodyMedium.copyWith(
+                                        color: AppColors.textMuted,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                              decoration: InputDecoration(
-                                border: InputBorder.none,
-                                hintText: 'What happened? What does it mean? What changes next?',
-                                hintStyle: GoogleFonts.inter(
-                                  color: const Color(0xFF525252),
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
                             ),
-                            if (_showSuccess)
-                              Center(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
+                            const SizedBox(height: 12),
+                          ] else ...[
+                            GestureDetector(
+                              onTap: () {
+                                setState(
+                                  () =>
+                                      _moreToolsExpanded = !_moreToolsExpanded,
+                                );
+                              },
+                              child: VyCard(
+                                child: Row(
                                   children: [
-                                    const Icon(Icons.check_circle_outline, color: Color(0xFF10B981), size: 48),
-                                    const SizedBox(height: 16),
                                     Text(
-                                      'Context synchronized',
-                                      style: GoogleFonts.jetBrainsMono(
-                                        color: const Color(0xFF10B981),
-                                        fontSize: 12,
+                                      'More tools',
+                                      style: VyText.titleMedium,
+                                    ),
+                                    const Spacer(),
+                                    Icon(
+                                      _moreToolsExpanded
+                                          ? Icons.keyboard_arrow_up
+                                          : Icons.keyboard_arrow_down,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            if (_moreToolsExpanded) ...[
+                              const SizedBox(height: 10),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: VyColors.surface2,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: VyColors.border,
+                                    width: 0.9,
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Context Capture Protocol',
+                                      style: VyType.heading.copyWith(fontSize: 15),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      '1) State facts clearly\n2) Mark the emotional signal\n3) Define the next controllable action',
+                                      style: VyType.caption.copyWith(
+                                        color: VyColors.textMuted,
+                                        height: 1.45,
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
+                              const SizedBox(height: 10),
+                            ],
                           ],
-                        ),
-                      ),
-                    ),
-                    if (_reviewVisible) ...[
-                      const SizedBox(height: 14),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF0D1218),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFF253244), width: 0.9),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
+                          Consumer2<WarRoomViewModel, MemoryService>(
+                            builder: (context, vm, memory, _) {
+                              final allForTheme =
+                                  memory.getJournalEntries(limit: 500);
+                              return Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  _MetaPill(
+                                    label: 'Streak',
+                                    value: '${vm.journalStreakDays}d',
+                                  ),
+                                  _MetaPill(
+                                    label: 'Top theme',
+                                    value: _topTheme(allForTheme),
+                                  ),
+                                  _MetaPill(
+                                    label: 'Entries',
+                                    value: '${memory.getJournalEntryCount()}',
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                          if (!widget.oneLineMode && _moreToolsExpanded) ...[
+                            const SizedBox(height: 20),
                             Text(
-                              'Extraction Review',
-                              style: GoogleFonts.inter(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
-                              ),
+                              'TEMPLATES',
+                              style: VyType.sectionLabel.copyWith(fontSize: 10),
                             ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'Accept, edit, or deselect insights before they shape future intelligence.',
-                              style: GoogleFonts.inter(color: const Color(0xFF9CA3AF), fontSize: 12),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: _templates
+                                  .map(
+                                    (t) => _ChipButton(
+                                      label: t,
+                                      onTap: () => _applyTemplate(t),
+                                    ),
+                                  )
+                                  .toList(),
                             ),
                             const SizedBox(height: 10),
-                            ..._insights.asMap().entries.map((entry) {
-                              final idx = entry.key;
-                              final selected = _selectedInsightIndexes.contains(idx);
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 8),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Checkbox(
-                                      value: selected,
-                                      onChanged: (v) {
-                                        setState(() {
-                                          if (v == true) {
-                                            _selectedInsightIndexes.add(idx);
-                                          } else {
-                                            _selectedInsightIndexes.remove(idx);
-                                          }
-                                        });
+                            Text(
+                              'GUIDED PROMPTS',
+                              style: VyType.sectionLabel.copyWith(fontSize: 10),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: _guidedPrompts
+                                  .map(
+                                    (p) => _ChipButton(
+                                      label: p,
+                                      subtle: true,
+                                      onTap: () {
+                                        _journalController.text +=
+                                            '${_journalController.text.trim().isEmpty ? '' : '\n\n'}$p\n';
+                                        _focusNode.requestFocus();
                                       },
                                     ),
-                                    Expanded(
-                                      child: TextFormField(
-                                        initialValue: entry.value,
-                                        onChanged: (v) => _insights[idx] = v,
-                                        style: GoogleFonts.inter(color: Colors.white, fontSize: 13),
-                                        decoration: const InputDecoration(
-                                          isDense: true,
-                                          border: UnderlineInputBorder(),
+                                  )
+                                  .toList(),
+                            ),
+                            const SizedBox(height: 14),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                Text(
+                                  'Mood',
+                                  style: VyType.caption.copyWith(
+                                    color: VyColors.textMuted,
+                                  ),
+                                ),
+                                ..._moods.map((m) {
+                                  final active = m == _selectedMood;
+                                  return VyChip(
+                                    label: m,
+                                    selected: active,
+                                    onTap: () =>
+                                        setState(() => _selectedMood = m),
+                                  );
+                                }),
+                              ],
+                            ),
+                          ],
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: _selectedTags
+                                .map(
+                                  (tag) => _ChipButton(
+                                    label: '#$tag',
+                                    active: true,
+                                    onTap: () => setState(
+                                      () => _selectedTags.remove(tag),
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                          const SizedBox(height: 14),
+                          Row(
+                            children: [
+                              _MetaPill(
+                                label: 'Words',
+                                value: '${_wordCount(textNow)}',
+                              ),
+                              const SizedBox(width: 8),
+                              _MetaPill(
+                                label: 'Action cues',
+                                value: '${_actionableEstimate(textNow)}',
+                              ),
+                              const SizedBox(width: 8),
+                              _MetaPill(
+                                label: 'Auto tags',
+                                value: '${_autoTagsFromText(textNow).length}',
+                              ),
+                            ],
+                          ),
+                          if (!widget.oneLineMode) ...[
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              height: editorHeight,
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(20),
+                                decoration: BoxDecoration(
+                                  color: VyColors.surface1,
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: VyColors.border,
+                                    width: 0.9,
+                                  ),
+                                ),
+                                child: Stack(
+                                  children: [
+                                    TextField(
+                                      controller: _journalController,
+                                      focusNode: _focusNode,
+                                      maxLines: null,
+                                      expands: true,
+                                      autocorrect: false,
+                                      enableSuggestions: false,
+                                      smartDashesType: SmartDashesType.disabled,
+                                      smartQuotesType: SmartQuotesType.disabled,
+                                      keyboardType:
+                                          TextInputType.visiblePassword,
+                                      obscureText: false,
+                                      spellCheckConfiguration:
+                                          SpellCheckConfiguration.disabled(),
+                                      style: VyType.body.copyWith(height: 1.7),
+                                      decoration: InputDecoration(
+                                        border: InputBorder.none,
+                                        hintText:
+                                            'What happened? What does it mean? What changes next?',
+                                        hintStyle: VyType.bodyMuted.copyWith(
+                                          color: VyColors.textFaint,
                                         ),
                                       ),
                                     ),
+                                    if (_showSuccess)
+                                      Center(
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              Icons.check_circle_outline,
+                                              color: AppColors.gold,
+                                              size: 48,
+                                            ),
+                                            const SizedBox(height: 16),
+                                            Text(
+                                              'Context synchronized',
+                                              style: VyType.accent.copyWith(
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
                                   ],
                                 ),
-                              );
-                            }),
-                          ],
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 14),
-                    Consumer<MemoryService>(
-                      builder: (context, memory, _) {
-                        final recent = memory.getJournalEntries(limit: 3);
-                        if (recent.isEmpty) {
-                          return Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF111827),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: const Color(0xFF2A3442), width: 0.8),
-                            ),
-                            child: Column(
-                              children: [
-                                SvgPicture.asset(
-                                  'vyoma-icon-192.svg',
-                                  width: 48,
-                                  height: 48,
-                                ),
-                                const SizedBox(height: 14),
-                                Text(
-                                  'Nothing here yet',
-                                  textAlign: TextAlign.center,
-                                  style: GoogleFonts.inter(
-                                    color: Colors.white.withValues(alpha: 0.92),
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Your reflections stay private — only you and Vyoma see them.',
-                                  textAlign: TextAlign.center,
-                                  style: GoogleFonts.inter(
-                                    color: const Color(0xFFB6C2CF),
-                                    fontSize: 13,
-                                    height: 1.45,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        }
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Recent captures',
-                              style: GoogleFonts.inter(
-                                color: const Color(0xFF9CA3AF),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
                               ),
                             ),
-                            const SizedBox(height: 8),
-                            ...recent.map((e) {
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF131923),
-                                  borderRadius: BorderRadius.circular(10),
+                          ],
+                          if (_reviewVisible) ...[
+                            const SizedBox(height: 14),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: VyColors.surface2,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: VyColors.border,
+                                  width: 0.9,
                                 ),
-                                child: Text(
-                                  e.text,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: GoogleFonts.inter(color: const Color(0xFFD1D5DB), fontSize: 12),
-                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Extraction Review',
+                                    style: VyType.heading.copyWith(fontSize: 16),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Accept, edit, or deselect insights before they shape future intelligence.',
+                                    style: VyType.caption.copyWith(
+                                      color: VyColors.textMuted,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  ..._insights.asMap().entries.map((entry) {
+                                    final idx = entry.key;
+                                    final selected = _selectedInsightIndexes
+                                        .contains(idx);
+                                    return Padding(
+                                      padding: const EdgeInsets.only(bottom: 8),
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Checkbox(
+                                            value: selected,
+                                            onChanged: (v) {
+                                              setState(() {
+                                                if (v == true) {
+                                                  _selectedInsightIndexes.add(
+                                                    idx,
+                                                  );
+                                                } else {
+                                                  _selectedInsightIndexes
+                                                      .remove(idx);
+                                                }
+                                              });
+                                            },
+                                          ),
+                                          Expanded(
+                                            child: TextFormField(
+                                              initialValue: entry.value,
+                                              onChanged: (v) =>
+                                                  _insights[idx] = v,
+                                              style: VyType.body.copyWith(
+                                                fontSize: 13,
+                                              ),
+                                              decoration: InputDecoration(
+                                                isDense: true,
+                                                filled: true,
+                                                fillColor: VyColors.surface1,
+                                                border: OutlineInputBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                  borderSide: const BorderSide(
+                                                    color: VyColors.border,
+                                                  ),
+                                                ),
+                                                enabledBorder: OutlineInputBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                  borderSide: const BorderSide(
+                                                    color: VyColors.border,
+                                                  ),
+                                                ),
+                                                focusedBorder: OutlineInputBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                  borderSide: const BorderSide(
+                                                    color: VyColors.goldDim,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }),
+                                ],
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 14),
+                          Consumer<MemoryService>(
+                            builder: (context, memory, _) {
+                              final recent = memory.getJournalEntries(limit: 3);
+                              if (recent.isEmpty) {
+                                return Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 20,
+                                    vertical: 28,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: VyColors.surface1,
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: VyColors.border,
+                                      width: 0.8,
+                                    ),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      const VyMark(size: 48),
+                                      const SizedBox(height: 14),
+                                      Text(
+                                        'Nothing here yet',
+                                        textAlign: TextAlign.center,
+                                        style: VyType.heading.copyWith(
+                                          fontSize: 18,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'Your reflections stay private — only you and Vyoma see them.',
+                                        textAlign: TextAlign.center,
+                                        style: VyType.bodyMuted.copyWith(
+                                          height: 1.45,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Recent captures',
+                                    style: VyType.sectionLabel.copyWith(
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  ...recent.map((e) {
+                                    return Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: VyColors.surface2,
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color: VyColors.borderSubtle,
+                                        ),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            e.text,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: VyType.caption.copyWith(
+                                              color: VyColors.textMuted,
+                                            ),
+                                          ),
+                                          if (e.tags.isNotEmpty) ...[
+                                            const SizedBox(height: 8),
+                                            Wrap(
+                                              spacing: 6,
+                                              runSpacing: 6,
+                                              children: e.tags
+                                                  .take(6)
+                                                  .map(
+                                                    (t) => Container(
+                                                      padding: const EdgeInsets
+                                                          .symmetric(
+                                                        horizontal: 8,
+                                                        vertical: 4,
+                                                      ),
+                                                      decoration: BoxDecoration(
+                                                        color: VyColors.surface1,
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                                999),
+                                                        border: Border.all(
+                                                          color:
+                                                              VyColors.border,
+                                                        ),
+                                                      ),
+                                                      child: Text(
+                                                        t,
+                                                        style: VyType.caption
+                                                            .copyWith(
+                                                          fontSize: 10,
+                                                          color:
+                                                              VyColors.goldDim,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  )
+                                                  .toList(),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    );
+                                  }),
+                                ],
                               );
-                            }),
-                          ],
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final compact = constraints.maxWidth < 640;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              final compact = constraints.maxWidth < 640;
 
-                        if (compact) {
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              _buildAnalyzeButton(),
-                              const SizedBox(height: 10),
-                              _buildCommitButton(),
-                              if (_reviewVisible) ...[
-                                const SizedBox(height: 6),
-                                _buildRejectButton(),
-                              ],
-                            ],
-                          );
-                        }
+                              if (compact) {
+                                return Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    _buildAnalyzeButton(),
+                                    const SizedBox(height: 10),
+                                    _buildCommitButton(),
+                                    if (_reviewVisible) ...[
+                                      const SizedBox(height: 6),
+                                      _buildRejectButton(),
+                                    ],
+                                  ],
+                                );
+                              }
 
-                        return Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            _buildAnalyzeButton(),
-                            const SizedBox(width: 10),
-                            _buildCommitButton(),
-                            if (_reviewVisible) ...[
-                              const SizedBox(width: 10),
-                              _buildRejectButton(),
-                            ],
-                          ],
-                        );
-                      },
-                    ),
+                              return Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  _buildAnalyzeButton(),
+                                  const SizedBox(width: 10),
+                                  _buildCommitButton(),
+                                  if (_reviewVisible) ...[
+                                    const SizedBox(width: 10),
+                                    _buildRejectButton(),
+                                  ],
+                                ],
+                              );
+                            },
+                          ),
                         ],
                       ),
                     );
@@ -693,7 +945,7 @@ class _VaultJournalViewState extends State<VaultJournalView> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: AppColors.surface1,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Center(
@@ -701,14 +953,13 @@ class _VaultJournalViewState extends State<VaultJournalView> {
                   ? const SizedBox(
                       width: 20,
                       height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: VyLoader(),
                     )
                   : Text(
                       _reviewVisible ? 'Re-analyze' : 'Analyze Entry',
-                      style: GoogleFonts.inter(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
+                      style: VyType.accent.copyWith(
+                        color: VyColors.textPrimary,
+                        letterSpacing: 1.2,
                       ),
                     ),
             ),
@@ -726,16 +977,15 @@ class _VaultJournalViewState extends State<VaultJournalView> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
           decoration: BoxDecoration(
-            color: const Color(0xFFE5C158),
+            color: AppColors.gold,
             borderRadius: BorderRadius.circular(12),
           ),
           child: Center(
             child: Text(
               'Commit to Memory',
-              style: GoogleFonts.inter(
-                color: Colors.black,
-                fontWeight: FontWeight.w700,
-                fontSize: 15,
+              style: VyType.accent.copyWith(
+                color: VyColors.background,
+                letterSpacing: 1.2,
               ),
             ),
           ),
@@ -755,11 +1005,7 @@ class _VaultJournalViewState extends State<VaultJournalView> {
       },
       child: Text(
         'Reject insights',
-        style: GoogleFonts.inter(
-          color: const Color(0xFF9CA3AF),
-          fontWeight: FontWeight.w600,
-          fontSize: 13,
-        ),
+        style: VyType.caption.copyWith(color: VyColors.textMuted),
       ),
     );
   }
@@ -773,31 +1019,29 @@ class _MetaPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final labelStyle = VyType.caption.copyWith(
+      fontSize: 11,
+      color: VyColors.textMuted,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+    final valueStyle = VyType.caption.copyWith(
+      fontSize: 11,
+      color: VyColors.textPrimary,
+      fontWeight: FontWeight.w500,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFF141A24),
+        color: VyColors.surface2,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0xFF2A3442), width: 0.8),
+        border: Border.all(color: VyColors.border, width: 0.8),
       ),
       child: RichText(
         text: TextSpan(
           children: [
-            TextSpan(
-              text: '$label: ',
-              style: GoogleFonts.jetBrainsMono(
-                color: const Color(0xFF94A3B8),
-                fontSize: 10,
-              ),
-            ),
-            TextSpan(
-              text: value,
-              style: GoogleFonts.jetBrainsMono(
-                color: const Color(0xFFE2E8F0),
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            TextSpan(text: '$label: ', style: labelStyle),
+            TextSpan(text: value, style: valueStyle),
           ],
         ),
       ),
@@ -821,11 +1065,13 @@ class _ChipButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bg = active
-        ? const Color(0xFF10B981).withValues(alpha: 0.2)
+        ? AppColors.gold.withValues(alpha: 0.12)
         : subtle
-            ? const Color(0xFF121826)
-            : const Color(0xFF171B22);
-    final border = active ? const Color(0xFF10B981).withValues(alpha: 0.5) : const Color(0xFF2B313B);
+            ? VyColors.surface2
+            : VyColors.surface1;
+    final border = active
+        ? AppColors.gold.withValues(alpha: 0.45)
+        : VyColors.border;
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -840,9 +1086,9 @@ class _ChipButton extends StatelessWidget {
           ),
           child: Text(
             label,
-            style: GoogleFonts.jetBrainsMono(
-              color: active ? const Color(0xFF34D399) : const Color(0xFFB8C0CC),
-              fontSize: 10,
+            style: VyType.caption.copyWith(
+              fontSize: 11,
+              color: active ? VyColors.gold : VyColors.textMuted,
             ),
           ),
         ),
@@ -850,4 +1096,3 @@ class _ChipButton extends StatelessWidget {
     );
   }
 }
-

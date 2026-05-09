@@ -6,6 +6,8 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../core/user_service.dart';
 import '../../core/friend_service.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/widgets/vy_loader.dart';
 
 class AddFriendScreen extends StatefulWidget {
   const AddFriendScreen({super.key});
@@ -79,15 +81,15 @@ class _AddFriendScreenState extends State<AddFriendScreen> with SingleTickerProv
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0F1A),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: Text('EXPAND CIRCLE', style: GoogleFonts.inter(letterSpacing: 2, fontSize: 14)),
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: const Color(0xFF06B6D4),
-          labelColor: const Color(0xFF06B6D4),
+          indicatorColor: AppColors.gold,
+          labelColor: AppColors.gold,
           unselectedLabelColor: Colors.white54,
           tabs: const [
             Tab(text: "SEARCH"),
@@ -122,7 +124,7 @@ class _AddFriendScreenState extends State<AddFriendScreen> with SingleTickerProv
               fillColor: const Color(0xFF1A1A24),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
               suffixIcon: IconButton(
-                icon: const Icon(Icons.search, color: Color(0xFF06B6D4)),
+                icon: const Icon(Icons.search, color: AppColors.gold),
                 onPressed: _performSearch,
               ),
             ),
@@ -130,7 +132,7 @@ class _AddFriendScreenState extends State<AddFriendScreen> with SingleTickerProv
           ),
           const SizedBox(height: 32),
           if (_isSearching)
-            const CircularProgressIndicator(color: Color(0xFF06B6D4))
+            const VyLoader()
           else if (_searchError != null)
             Text(_searchError!, style: const TextStyle(color: Colors.redAccent))
           else if (_searchResultUid != null)
@@ -171,7 +173,7 @@ class _AddFriendScreenState extends State<AddFriendScreen> with SingleTickerProv
                     Text('@${profile.username}', style: const TextStyle(color: Colors.white54, fontSize: 13)),
                     if (profile.tagline.isNotEmpty) ...[
                       const SizedBox(height: 4),
-                      Text(profile.tagline, style: const TextStyle(color: Color(0xFF06B6D4), fontSize: 12)),
+                      Text(profile.tagline, style: const TextStyle(color: AppColors.gold, fontSize: 12)),
                     ]
                   ],
                 ),

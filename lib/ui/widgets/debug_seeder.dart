@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import '../../core/user_service.dart';
+import '../../core/widgets/vy_loader.dart';
 
 class DebugSeeder extends StatefulWidget {
   const DebugSeeder({super.key});
@@ -134,7 +135,7 @@ class _DebugSeederState extends State<DebugSeeder> {
       backgroundColor: Colors.amber,
       onPressed: _isSeeding ? null : _seedDatabase,
       icon: _isSeeding 
-          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2))
+          ? const SizedBox(width: 14, height: 14, child: VyLoader())
           : const Icon(Icons.bug_report, color: Colors.black, size: 18),
       label: Text(
         _isSeeding ? "SEEDING..." : "SEED DB",
