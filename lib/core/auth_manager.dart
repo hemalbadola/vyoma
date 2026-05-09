@@ -2,10 +2,11 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:googleapis/calendar/v3.dart';
 import 'package:http/http.dart' as http;
-import 'auth_manager_desktop.dart' if (dart.library.html) 'auth_manager_web.dart'; 
+import 'auth_manager_desktop.dart'
+    if (dart.library.html) 'auth_manager_web.dart';
 // Note: Web not targeted effectively, but good for conditional import structure.
-// Actually, better to use conditional imports for mobile vs desktop if needed, 
-// but since dart:io is available on both, we can just check Platform.isAndroid/iOS at runtime 
+// Actually, better to use conditional imports for mobile vs desktop if needed,
+// but since dart:io is available on both, we can just check Platform.isAndroid/iOS at runtime
 // or use a factory. However, google_sign_in has platform limitations.
 
 import 'auth_manager_mobile.dart';
@@ -48,8 +49,8 @@ class AuthCancelledException implements Exception {
 }
 
 abstract class AuthManager {
-  Future<http.Client> getAuthenticatedClient();
-  Future<CalendarApi> getCalendarApi();
+  Future<http.Client> getAuthenticatedClient({bool allowInteractive = true});
+  Future<CalendarApi> getCalendarApi({bool allowInteractive = true});
   void clearAuthCooldown();
   Future<void> signOut();
 
@@ -57,9 +58,11 @@ abstract class AuthManager {
     if (kIsWeb) {
       // Placeholder for web if ever needed
       throw UnimplementedError("Web not supported yet");
-    } else if (Platform.isAndroid || Platform.isIOS) {
+    } else if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
+      // macOS uses the Google Sign-In plugin flow (same manager as mobile)
+      // so we avoid the legacy desktop loopback/secret-based path.
       return AuthManagerMobile();
-    } else if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+    } else if (Platform.isWindows || Platform.isLinux) {
       return AuthManagerDesktop();
     } else {
       throw UnsupportedError("Platform not supported");

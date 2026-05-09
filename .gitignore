@@ -28,3 +28,10 @@ build/
 .DS_Store
 .flutter-plugins-dependencies
 node_modules/
+.cursor/
+*.apk
+backup_diff.txt
+temp_diff.txt
+build_dist.sh
+update_colors*.py
+backend/fix_firebase.py

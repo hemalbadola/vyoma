@@ -186,9 +186,13 @@ class WarRoomViewModel extends ChangeNotifier {
       timetable: TimetableExecutorImpl(_timetableService),
       reminders: ReminderExecutorImpl(_notificationService),
       metrics: MetricsExecutorImpl((key, delta) async {
-        if (key == 'focus') _updateMetrics(focusDelta: delta);
-        else if (key == 'distraction') _updateMetrics(distractionDelta: delta);
-        else if (key == 'task') _updateMetrics(taskDelta: delta);
+        if (key == 'focus') {
+          _updateMetrics(focusDelta: delta);
+        } else if (key == 'distraction') {
+          _updateMetrics(distractionDelta: delta);
+        } else if (key == 'task') {
+          _updateMetrics(taskDelta: delta);
+        }
       }),
       audit: _auditLogger,
     );

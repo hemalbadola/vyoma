@@ -1,15 +1,12 @@
-// ============================================================
-// pending_action_card.dart
 // Structured UX card for actions that need user confirmation.
-// Replaces the "say go ahead" text pattern with tappable buttons.
-// ============================================================
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:vyoma/core/policy_engine.dart';
 import 'package:vyoma/core/models/ai_action_proposal.dart';
+import 'package:vyoma/ui/theme/vyoma_colors.dart';
 
-class PendingActionCard extends StatelessWidget {
+class PendingActionCard extends StatefulWidget {
   const PendingActionCard({
     super.key,
     required this.pendingActions,
@@ -21,10 +18,28 @@ class PendingActionCard extends StatelessWidget {
   final VoidCallback onApprove;
   final VoidCallback onDeny;
 
-  static const _kSurface = Color(0xFF111518);
-  static const _kBorder = Color(0xFF1E2A33);
-  static const _kAccent = Color(0xFF10B981);
-  static const _kDanger = Color(0xFFEF4444);
+  @override
+  State<PendingActionCard> createState() => _PendingActionCardState();
+}
+
+class _PendingActionCardState extends State<PendingActionCard>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
 
   IconData _iconForType(AIActionType type) {
     switch (type) {
@@ -45,14 +60,11 @@ class PendingActionCard extends StatelessWidget {
     }
   }
 
-  String _labelForAction(AIAction action) {
+  String _titleLine(AIAction action) {
     final title = action.title ?? 'Untitled';
     switch (action.type) {
       case AIActionType.calendarCreate:
-        final time = action.startTime != null
-            ? ' at ${_formatTime(action.startTime!)}'
-            : '';
-        return 'Create "$title"$time';
+        return title;
       case AIActionType.calendarMove:
         return 'Move "$title"';
       case AIActionType.calendarDelete:
@@ -68,6 +80,11 @@ class PendingActionCard extends StatelessWidget {
     }
   }
 
+  String? _timeLine(AIAction action) {
+    if (action.startTime == null) return null;
+    return _formatTime(action.startTime!);
+  }
+
   String _formatTime(DateTime dt) {
     final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
     final m = dt.minute.toString().padLeft(2, '0');
@@ -77,161 +94,123 @@ class PendingActionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: _kSurface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _kAccent.withValues(alpha: 0.25)),
-        boxShadow: [
-          BoxShadow(
-            color: _kAccent.withValues(alpha: 0.06),
-            blurRadius: 20,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Header
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: _kAccent.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  Icons.pending_actions_rounded,
-                  color: _kAccent,
-                  size: 16,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                'PENDING ACTIONS',
-                style: GoogleFonts.jetBrainsMono(
-                  color: _kAccent,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 1.2,
-                ),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.05),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  '${pendingActions.length}',
-                  style: GoogleFonts.jetBrainsMono(
-                    color: Colors.white54,
-                    fontSize: 11,
-                  ),
-                ),
+    return AnimatedBuilder(
+      animation: _pulse,
+      builder: (context, _) {
+        final t = CurvedAnimation(parent: _pulse, curve: Curves.easeInOut).value;
+        final glow = VyomaColors.warning.withValues(alpha: 0.35 + t * 0.35);
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 4),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: VyomaColors.bgCardElevated.withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: glow, width: 1.4),
+            boxShadow: [
+              BoxShadow(
+                color: VyomaColors.warning.withValues(alpha: 0.12 + t * 0.12),
+                blurRadius: 18,
+                spreadRadius: t * 0.5,
               ),
             ],
           ),
-          const SizedBox(height: 14),
-
-          // Action list
-          ...pendingActions.map((decision) {
-            final action = decision.action;
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Vyoma wants to do this:',
+                style: GoogleFonts.inter(
+                  color: VyomaColors.textPrimary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 12),
+              ...widget.pendingActions.map((decision) {
+                final action = decision.action;
+                final time = _timeLine(action);
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        _iconForType(action.type),
+                        color: action.type.isDestructive
+                            ? VyomaColors.error.withValues(alpha: 0.75)
+                            : VyomaColors.textMuted,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '• ${_titleLine(action)}',
+                              style: GoogleFonts.inter(
+                                color: VyomaColors.textPrimary.withValues(alpha: 0.9),
+                                fontSize: 13,
+                                height: 1.35,
+                              ),
+                            ),
+                            if (time != null)
+                              Text(
+                                time,
+                                style: GoogleFonts.jetBrainsMono(
+                                  color: VyomaColors.textMuted,
+                                  fontSize: 11,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+              const SizedBox(height: 12),
+              Row(
                 children: [
-                  Icon(
-                    _iconForType(action.type),
-                    color: action.type.isDestructive
-                        ? _kDanger.withValues(alpha: 0.7)
-                        : Colors.white38,
-                    size: 16,
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: widget.onDeny,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: VyomaColors.textSecondary,
+                        side: BorderSide(color: VyomaColors.borderDefault),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: Text(
+                        'Cancel ✗',
+                        style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Text(
-                      _labelForAction(action),
-                      style: GoogleFonts.inter(
-                        color: Colors.white.withValues(alpha: 0.85),
-                        fontSize: 13,
-                        height: 1.4,
+                    flex: 2,
+                    child: FilledButton(
+                      onPressed: widget.onApprove,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: VyomaColors.accent,
+                        foregroundColor: VyomaColors.textOnAccent,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: Text(
+                        'Approve ✓',
+                        style: GoogleFonts.inter(fontWeight: FontWeight.w700),
                       ),
                     ),
                   ),
-                  if (decision.reason != null)
-                    Tooltip(
-                      message: decision.reason!,
-                      child: Icon(
-                        Icons.info_outline_rounded,
-                        color: Colors.white24,
-                        size: 14,
-                      ),
-                    ),
                 ],
-              ),
-            );
-          }),
-
-          const SizedBox(height: 12),
-
-          // Action buttons
-          Row(
-            children: [
-              Expanded(
-                child: TextButton(
-                  onPressed: onDeny,
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      side: BorderSide(color: _kBorder),
-                    ),
-                  ),
-                  child: Text(
-                    'CANCEL',
-                    style: GoogleFonts.jetBrainsMono(
-                      color: Colors.white38,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                flex: 2,
-                child: ElevatedButton(
-                  onPressed: onApprove,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _kAccent,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    elevation: 0,
-                  ),
-                  child: Text(
-                    'EXECUTE',
-                    style: GoogleFonts.jetBrainsMono(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                ),
               ),
             ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

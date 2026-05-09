@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../core/user_service.dart';
@@ -7,6 +8,7 @@ import '../../core/cofocus_service.dart';
 import '../../core/accountability_service.dart';
 import '../../core/ping_service.dart';
 import '../../core/models/pact.dart';
+import '../theme/vyoma_colors.dart';
 import 'add_friend_screen.dart';
 
 class FriendsHubScreen extends StatelessWidget {
@@ -235,10 +237,58 @@ class FriendsHubScreen extends StatelessWidget {
       stream: context.watch<FriendService>().getAcceptedFriendUidsStream(),
       builder: (context, uidsSnap) {
         if (!uidsSnap.hasData || uidsSnap.data!.isEmpty) {
-          return const SliverToBoxAdapter(
+          return SliverToBoxAdapter(
             child: Padding(
-              padding: EdgeInsets.all(24.0),
-              child: Center(child: Text("Your circle is quiet. Invite an agent.", style: TextStyle(color: Colors.white38))),
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 48),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 360),
+                  child: Column(
+                    children: [
+                      SvgPicture.asset(
+                        'vyoma-social-pfp.svg',
+                        width: 64,
+                        height: 64,
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        'No squad yet',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.inter(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Invite a friend to stay accountable together.',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.inter(
+                          color: Colors.white54,
+                          fontSize: 14,
+                          height: 1.45,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      FilledButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const AddFriendScreen()),
+                          );
+                        },
+                        icon: const Icon(Icons.person_add_rounded, size: 20),
+                        label: const Text('Invite'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: VyomaColors.accent,
+                          foregroundColor: VyomaColors.textOnAccent,
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
           );
         }

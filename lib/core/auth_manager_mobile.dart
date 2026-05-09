@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart' as gsi;
 import 'package:googleapis/calendar/v3.dart';
 import 'package:http/http.dart' as http;
@@ -18,19 +17,9 @@ class AuthManagerMobile implements AuthManager {
 
   final String? _iosClientId = _nonEmptyOrNull(Secrets.iOSClientId);
   final String? _androidServerClientId = _nonEmptyOrNull(Secrets.webClientId);
+  final gsi.GoogleSignIn _googleSignIn = gsi.GoogleSignIn.instance;
+  bool _googleSignInInitialized = false;
 
-  late final gsi.GoogleSignIn _googleSignIn = gsi.GoogleSignIn(
-    scopes: [CalendarApi.calendarScope],
-    clientId: Platform.isIOS ? _iosClientId : null,
-    serverClientId: Platform.isAndroid ? _androidServerClientId : null,
-  );
-
-  late final gsi.GoogleSignIn _googleSignInFallbackNoServerClientId = gsi.GoogleSignIn(
-    scopes: [CalendarApi.calendarScope],
-    clientId: Platform.isIOS ? _iosClientId : null,
-    serverClientId: null,
-  );
-  
   gsi.GoogleSignInAccount? _currentUser;
 
   // Race condition guard.
@@ -54,7 +43,9 @@ class AuthManagerMobile implements AuthManager {
   }
 
   @override
-  Future<http.Client> getAuthenticatedClient() async {
+  Future<http.Client> getAuthenticatedClient({
+    bool allowInteractive = true,
+  }) async {
     // If an auth attempt is already running, piggyback on it.
     if (_authInFlight != null) {
       return _authInFlight!.future;
@@ -62,10 +53,10 @@ class AuthManagerMobile implements AuthManager {
 
     final completer = Completer<http.Client>();
     _authInFlight = completer;
-    final allowInteractive = !_isInCooldown;
+    final canPromptUser = allowInteractive && !_isInCooldown;
 
     try {
-      final client = await _doAuthenticate(allowInteractive: allowInteractive);
+      final client = await _doAuthenticate(allowInteractive: canPromptUser);
       _lastAuthFailure = null; // Clear cooldown on success.
       completer.complete(client);
       return client;
@@ -82,47 +73,71 @@ class AuthManagerMobile implements AuthManager {
     }
   }
 
-  bool _isDeveloperError(PlatformException e) {
-    final code = e.code.toLowerCase();
-    final message = (e.message ?? '').toLowerCase();
-    return code.contains('developer_error') || code == '10' || message.contains('developer_error');
+  Future<void> _ensureGoogleSignInInitialized() async {
+    if (_googleSignInInitialized) return;
+    await _googleSignIn.initialize(
+      clientId: Platform.isIOS ? _iosClientId : null,
+      serverClientId: Platform.isAndroid ? _androidServerClientId : null,
+    );
+    _googleSignInInitialized = true;
   }
 
-  Exception _mapPlatformException(PlatformException e) {
-    final code = e.code.toLowerCase();
-    final message = (e.message ?? '').toLowerCase();
+  bool _isDeveloperError(gsi.GoogleSignInException e) {
+    if (e.code == gsi.GoogleSignInExceptionCode.clientConfigurationError ||
+        e.code == gsi.GoogleSignInExceptionCode.providerConfigurationError) {
+      return true;
+    }
+    final details = (e.description ?? '').toLowerCase();
+    return details.contains('developer_error') ||
+        details.contains('configuration');
+  }
 
-    if (code.contains('sign_in_canceled') || code.contains('cancelled') || code.contains('canceled')) {
+  Exception _mapGoogleSignInException(gsi.GoogleSignInException e) {
+    final details = (e.description ?? '').toLowerCase();
+
+    if (e.code == gsi.GoogleSignInExceptionCode.canceled ||
+        e.code == gsi.GoogleSignInExceptionCode.interrupted ||
+        e.code == gsi.GoogleSignInExceptionCode.uiUnavailable) {
       return AuthCancelledException('Google sign-in was cancelled.');
     }
 
     if (_isDeveloperError(e)) {
       return AuthConfigurationException(
-        'Google sign-in failed (${e.code}): ${e.message}. '
+        'Google sign-in failed (${e.code.name}): ${e.description ?? "Unknown configuration issue"}. '
         'Verify Android OAuth package com.vyoma.app with correct SHA-1/SHA-256 and set VYOMA_WEB_CLIENT_ID to your Web OAuth client ID.',
       );
     }
 
-    if (message.contains('network') || message.contains('timeout')) {
-      return Exception('Google sign-in failed due to connectivity issues. Please retry.');
+    if (details.contains('network') || details.contains('timeout')) {
+      return Exception(
+        'Google sign-in failed due to connectivity issues. Please retry.',
+      );
     }
 
-    return Exception('Google sign-in failed (${e.code}): ${e.message}');
+    return Exception(
+      'Google sign-in failed (${e.code.name}): ${e.description ?? "Unknown error"}',
+    );
   }
 
-  Future<gsi.GoogleSignInAccount?> _runSignInAttempt(
-    gsi.GoogleSignIn signIn,
-    {required bool allowInteractive}
-  ) async {
-    var user = await signIn.signInSilently();
+  Future<gsi.GoogleSignInAccount?> _runSignInAttempt({
+    required bool allowInteractive,
+  }) async {
+    await _ensureGoogleSignInInitialized();
+
+    final lightweightAttempt = _googleSignIn.attemptLightweightAuthentication();
+    var user = lightweightAttempt == null ? null : await lightweightAttempt;
     debugPrint('AuthManagerMobile: signInSilently => ${user?.email ?? "null"}');
 
     if (user == null) {
       if (!allowInteractive) {
-        throw AuthCooldownException(_authCooldownRemaining ?? const Duration(seconds: 30));
+        throw AuthCooldownException(
+          _authCooldownRemaining ?? const Duration(seconds: 30),
+        );
       }
-      user = await signIn.signIn();
-      debugPrint('AuthManagerMobile: signIn => ${user?.email ?? "null"}');
+      user = await _googleSignIn.authenticate(
+        scopeHint: const [CalendarApi.calendarScope],
+      );
+      debugPrint('AuthManagerMobile: signIn => ${user.email}');
     }
 
     return user;
@@ -136,65 +151,60 @@ class AuthManagerMobile implements AuthManager {
 
     gsi.GoogleSignInAccount? signedInUser;
     try {
-      signedInUser = await _runSignInAttempt(_googleSignIn, allowInteractive: allowInteractive);
-    } on PlatformException catch (e) {
-      debugPrint('AuthManagerMobile: PlatformException(primary): ${e.code} - ${e.message}');
-
-      // Fallback for Android: if configured serverClientId is invalid, retry once without it.
-      if (Platform.isAndroid && _androidServerClientId != null && _isDeveloperError(e)) {
-        debugPrint('AuthManagerMobile: Retrying sign-in without serverClientId fallback.');
-        try {
-          signedInUser = await _runSignInAttempt(
-            _googleSignInFallbackNoServerClientId,
-            allowInteractive: allowInteractive,
-          );
-        } on PlatformException catch (fallbackError) {
-          debugPrint('AuthManagerMobile: PlatformException(fallback): ${fallbackError.code} - ${fallbackError.message}');
-          throw _mapPlatformException(fallbackError);
-        }
-      } else {
-        throw _mapPlatformException(e);
-      }
+      signedInUser = await _runSignInAttempt(
+        allowInteractive: allowInteractive,
+      );
+    } on gsi.GoogleSignInException catch (e) {
+      debugPrint(
+        'AuthManagerMobile: GoogleSignInException(primary): ${e.code.name} - ${e.description}',
+      );
+      throw _mapGoogleSignInException(e);
     }
 
     _currentUser = signedInUser;
-    
+
     if (_currentUser == null) {
       debugPrint('AuthManagerMobile: User declined or sign-in returned null');
-      throw const AuthCancelledException('Google sign-in was cancelled or dismissed.');
+      throw const AuthCancelledException(
+        'Google sign-in was cancelled or dismissed.',
+      );
     }
 
-    debugPrint('AuthManagerMobile: Signed in as ${_currentUser!.email}, getting auth headers...');
+    debugPrint(
+      'AuthManagerMobile: Signed in as ${_currentUser!.email}, getting auth headers...',
+    );
 
     try {
-      final authHeaders = await _currentUser!.authHeaders;
-      final authParams = await _currentUser!.authentication;
-      
-      try {
-        final credential = fb.GoogleAuthProvider.credential(
-          accessToken: authParams.accessToken,
-          idToken: authParams.idToken,
-        );
-        await fb.FirebaseAuth.instance.signInWithCredential(credential);
-        debugPrint('AuthManagerMobile: User synced to Firebase Auth');
-      } catch (e) {
-        debugPrint("AuthManagerMobile: Failed to sync to Firebase Auth: $e");
+      var authHeaders = await _currentUser!.authorizationClient
+          .authorizationHeaders(const [
+            CalendarApi.calendarScope,
+          ], promptIfNecessary: false);
+      final authParams = _currentUser!.authentication;
+      var bearer = authHeaders?['Authorization'];
+
+      if ((bearer == null || !bearer.contains(' ')) && allowInteractive) {
+        await _currentUser!.authorizationClient.authorizeScopes(const [
+          CalendarApi.calendarScope,
+        ]);
+        authHeaders = await _currentUser!.authorizationClient
+            .authorizationHeaders(const [
+              CalendarApi.calendarScope,
+            ], promptIfNecessary: false);
+        bearer = authHeaders?['Authorization'];
       }
 
-      debugPrint('AuthManagerMobile: Got auth headers successfully');
-
-      return auth.authenticatedClient(
-        http.Client(),
-        auth.AccessCredentials(
-          auth.AccessToken(
-            'Bearer',
-            authHeaders['Authorization']!.split(' ').last,
-            DateTime.now().toUtc().add(const Duration(hours: 1)),
-          ),
-          null,
-          [CalendarApi.calendarScope],
-        ),
+      if (bearer == null || !bearer.contains(' ')) {
+        throw const AuthCooldownException(Duration(seconds: 30));
+      }
+      final accessToken = bearer.split(' ').last;
+      return _buildAuthenticatedCalendarClient(
+        accessToken: accessToken,
+        idToken: authParams.idToken,
       );
+    } on gsi.GoogleSignInException catch (e) {
+      debugPrint('AuthManagerMobile: authHeaders google sign-in failure: $e');
+      _currentUser = null;
+      throw _mapGoogleSignInException(e);
     } catch (e) {
       debugPrint('AuthManagerMobile: authHeaders failed: $e');
       // Auth headers failed — user object is stale, clear it.
@@ -203,9 +213,42 @@ class AuthManagerMobile implements AuthManager {
     }
   }
 
+  Future<http.Client> _buildAuthenticatedCalendarClient({
+    required String accessToken,
+    required String? idToken,
+  }) async {
+    try {
+      final credential = fb.GoogleAuthProvider.credential(
+        accessToken: accessToken,
+        idToken: idToken,
+      );
+      await fb.FirebaseAuth.instance.signInWithCredential(credential);
+      debugPrint('AuthManagerMobile: User synced to Firebase Auth');
+    } catch (e) {
+      debugPrint("AuthManagerMobile: Failed to sync to Firebase Auth: $e");
+    }
+
+    debugPrint('AuthManagerMobile: Got auth headers successfully');
+
+    return auth.authenticatedClient(
+      http.Client(),
+      auth.AccessCredentials(
+        auth.AccessToken(
+          'Bearer',
+          accessToken,
+          DateTime.now().toUtc().add(const Duration(hours: 1)),
+        ),
+        null,
+        [CalendarApi.calendarScope],
+      ),
+    );
+  }
+
   @override
-  Future<CalendarApi> getCalendarApi() async {
-    final client = await getAuthenticatedClient();
+  Future<CalendarApi> getCalendarApi({bool allowInteractive = true}) async {
+    final client = await getAuthenticatedClient(
+      allowInteractive: allowInteractive,
+    );
     return CalendarApi(client);
   }
 

@@ -225,7 +225,9 @@ class _AddFriendScreenState extends State<AddFriendScreen> with SingleTickerProv
             icon: const Icon(Icons.share),
             label: const Text("Share Link"),
             onPressed: () {
-              Share.share('Join my accountability circle on Vyoma: $link');
+              SharePlus.instance.share(
+                ShareParams(text: 'Join my accountability circle on Vyoma: $link'),
+              );
             },
           )
         ],

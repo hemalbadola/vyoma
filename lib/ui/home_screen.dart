@@ -176,6 +176,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final userSvc = context.watch<UserService>();
+    final memory = context.watch<MemoryService>();
     if (!userSvc.isProfileLoaded) {
       return const Scaffold(
         backgroundColor: Colors.black,
@@ -184,9 +185,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
     
     if (!userSvc.hasProfile) {
+      if (memory.hasOnboarded) {
+        return _buildHomeScaffold(context);
+      }
       return const ProfileSetupScreen();
     }
 
+    return _buildHomeScaffold(context);
+  }
+
+  Widget _buildHomeScaffold(BuildContext context) {
     return Shortcuts(
       shortcuts: const <ShortcutActivator, Intent>{
         SingleActivator(LogicalKeyboardKey.keyK, meta: true): _OpenCommsIntent(),

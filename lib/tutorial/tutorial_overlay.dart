@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:vyoma/agent_debug_log.dart';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -25,6 +26,23 @@ class TutorialOverlay extends StatefulWidget {
 class _TutorialOverlayState extends State<TutorialOverlay> with TickerProviderStateMixin {
   Rect _previousHole = Rect.zero;
   late AnimationController _fadeController;
+
+  Future<void> _debugLog({
+    required String hypothesisId,
+    required String location,
+    required String message,
+    Map<String, dynamic>? data,
+  }) async {
+    // #region agent log
+    await agentDebugNdjsonLog(
+      runId: 'pre-fix-1',
+      hypothesisId: hypothesisId,
+      location: location,
+      message: message,
+      data: data,
+    );
+    // #endregion
+  }
 
   @override
   void initState() {
@@ -57,7 +75,15 @@ class _TutorialOverlayState extends State<TutorialOverlay> with TickerProviderSt
   Rect? _measureHole(BuildContext context, TutorialStep step) {
     final ctx = step.targetWidgetKey.currentContext;
     final ro = ctx?.findRenderObject();
-    if (ro is! RenderBox || !ro.hasSize) return null;
+    if (ro is! RenderBox || !ro.hasSize) {
+      _debugLog(
+        hypothesisId: 'H1',
+        location: 'tutorial_overlay.dart:_measureHole',
+        message: 'Target key has no RenderBox',
+        data: {'stepId': step.stepId, 'hasContext': ctx != null},
+      );
+      return null;
+    }
     final offset = ro.localToGlobal(Offset.zero);
     final size = ro.size;
     var rect = offset & size;
@@ -97,6 +123,15 @@ class _TutorialOverlayState extends State<TutorialOverlay> with TickerProviderSt
     final media = MediaQuery.of(context);
     final screen = media.size;
 
+    _debugLog(
+      hypothesisId: 'H1',
+      location: 'tutorial_overlay.dart:build',
+      message: 'Tutorial overlay active',
+      data: {
+        'stepId': step.stepId,
+        'stepIndex': widget.controller.currentStepIndex,
+      },
+    );
     return _buildFrame(context, step, screen, media.padding);
   }
 
@@ -106,24 +141,34 @@ class _TutorialOverlayState extends State<TutorialOverlay> with TickerProviderSt
     Size screen,
     EdgeInsets padding,
   ) {
-    final target = _measureHole(context, step) ??
+    final measured = _measureHole(context, step);
+    final target = measured ??
         Rect.fromCenter(
           center: Offset(screen.width / 2, screen.height / 2),
           width: 120,
           height: 120,
         );
+    if (measured == null) {
+      _debugLog(
+        hypothesisId: 'H2',
+        location: 'tutorial_overlay.dart:_buildFrame',
+        message: 'Fallback target rect used',
+        data: {'stepId': step.stepId},
+      );
+    }
 
     final begin = _previousHole == Rect.zero ? target : _previousHole;
 
     return Material(
       color: Colors.transparent,
-      child: TweenAnimationBuilder<Rect>(
-        tween: Tween<Rect>(begin: begin, end: target),
+      child: TweenAnimationBuilder<Rect?>(
+        tween: RectTween(begin: begin, end: target),
         duration: const Duration(milliseconds: 420),
         curve: Curves.easeOutCubic,
         onEnd: () => _previousHole = target,
         builder: (context, hole, _) {
-          final pivot = _arrowPivot(hole, step.arrowDirection);
+          final activeHole = hole ?? target;
+          final pivot = _arrowPivot(activeHole, step.arrowDirection);
 
           final cardWidth = math.min(340.0, screen.width - 32);
           const cardEstimatedHeight = 280.0;
@@ -139,7 +184,7 @@ class _TutorialOverlayState extends State<TutorialOverlay> with TickerProviderSt
             children: [
               CustomPaint(
                 size: screen,
-                painter: _SpotlightPainter(hole: hole, shape: step.highlightShape),
+                painter: _SpotlightPainter(hole: activeHole, shape: step.highlightShape),
               ),
               Positioned.fill(
                 child: IgnorePointer(
@@ -153,23 +198,23 @@ class _TutorialOverlayState extends State<TutorialOverlay> with TickerProviderSt
                   ),
                 ),
               ),
-              FadeTransition(
-                opacity: CurvedAnimation(parent: _fadeController, curve: Curves.easeOut),
-                child: AnimatedPositioned(
-                  duration: const Duration(milliseconds: 380),
-                  curve: Curves.easeOutCubic,
-                  left: cardLeft,
-                  top: cardTop,
-                  width: cardWidth,
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 380),
+                curve: Curves.easeOutCubic,
+                left: cardLeft,
+                top: cardTop,
+                width: cardWidth,
+                child: FadeTransition(
+                  opacity: CurvedAnimation(parent: _fadeController, curve: Curves.easeOut),
                   child: _TutorialTooltipCard(
-                    title: step.title,
-                    description: step.description,
-                    isLastStep:
-                        widget.controller.currentStepIndex >= widget.controller.steps.length - 1,
-                    canSkip: step.canSkip,
-                    onNext: widget.controller.next,
-                    onSkip: widget.controller.skip,
-                  ),
+                      title: step.title,
+                      description: step.description,
+                      isLastStep:
+                          widget.controller.currentStepIndex >= widget.controller.steps.length - 1,
+                      canSkip: step.canSkip,
+                      onNext: widget.controller.next,
+                      onSkip: widget.controller.skip,
+                    ),
                 ),
               ),
             ],
