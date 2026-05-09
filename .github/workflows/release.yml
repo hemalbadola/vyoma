@@ -21,6 +21,10 @@ jobs:
   build-macos:
     name: Build macos-latest
     runs-on: macos-latest
+    # Non-blocking: target's CODE_SIGN settings still demand a provisioning
+    # profile that GitHub runners don't have. Marked continue-on-error until
+    # signing is configured properly (manual cert + DEVELOPMENT_TEAM secret).
+    continue-on-error: true
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'macos' }}
 
     steps:

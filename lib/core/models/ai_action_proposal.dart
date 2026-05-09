@@ -4,6 +4,8 @@
 // The model ALWAYS returns this shape. Nothing else is trusted.
 // ============================================================
 
+import 'dart:convert';
+
 /// Bump this when the protocol changes in a breaking way.
 /// The parser rejects any response whose version doesn't match.
 const kProtocolVersion = 'vyoma-action-v1';
@@ -217,9 +219,19 @@ class AIAction {
       endTime: _parseDateTime(json['end']),
       weekday: json['weekday'] as String?,
       scope: json['scope'] as String?,
-      notes: json['notes'] as String?,
+      notes: _coerceNotes(json['notes']),
       targetEventId: json['target_event_id'] as String?,
     );
+  }
+
+  /// `notes` may arrive as a String (free-form note) or as a List/Map (e.g.
+  /// timetable.replace_day carrying slot objects). Always normalise to a
+  /// JSON-encoded string so ExecutionEngine can `jsonDecode` it uniformly.
+  static String? _coerceNotes(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is String) return raw;
+    if (raw is List || raw is Map) return jsonEncode(raw);
+    return raw.toString();
   }
 
   Map<String, dynamic> toJson() => {
