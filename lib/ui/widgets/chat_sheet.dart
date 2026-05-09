@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
@@ -355,18 +357,37 @@ class _ChatSheetState extends State<ChatSheet> with TickerProviderStateMixin {
               ),
             ],
             const SizedBox(height: 6),
-            Text(
-              _formatTime(msgs.last.timestamp),
-              style: GoogleFonts.jetBrainsMono(
-                color: VyomaColors.textMuted,
-                fontSize: 10,
-                height: 1.1,
-              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isUser) ...[
+                  _CopyButton(text: _joinedText(msgs)),
+                  const SizedBox(width: 6),
+                ],
+                Text(
+                  _formatTime(msgs.last.timestamp),
+                  style: GoogleFonts.jetBrainsMono(
+                    color: VyomaColors.textMuted,
+                    fontSize: 10,
+                    height: 1.1,
+                  ),
+                ),
+                if (!isUser) ...[
+                  const SizedBox(width: 6),
+                  _CopyButton(text: _joinedText(msgs)),
+                ],
+              ],
             ),
           ],
         ),
       ),
     );
+  }
+
+  /// Concatenate grouped bubble texts so the copy button captures the full
+  /// reply (or full user message) the user actually sees.
+  static String _joinedText(List<ChatMessage> msgs) {
+    return msgs.map((m) => m.text).where((t) => t.isNotEmpty).join('\n\n');
   }
 
   Widget _singleBubble({
@@ -1326,6 +1347,69 @@ class _AnimatedSendButtonState extends State<_AnimatedSendButton> {
               widget.isProcessing ? Icons.stop_rounded : Icons.arrow_upward_rounded, 
               color: _isHovered && !widget.isProcessing ? Colors.white : Colors.black, 
               size: 20,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact copy-to-clipboard button shown next to message timestamps.
+/// Mirrors ChatGPT/Claude affordance: idle copy icon, briefly swaps to
+/// a green check after the user taps.
+class _CopyButton extends StatefulWidget {
+  const _CopyButton({required this.text});
+
+  final String text;
+
+  @override
+  State<_CopyButton> createState() => _CopyButtonState();
+}
+
+class _CopyButtonState extends State<_CopyButton> {
+  bool _copied = false;
+  Timer? _resetTimer;
+
+  @override
+  void dispose() {
+    _resetTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _handleCopy() async {
+    if (widget.text.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: widget.text));
+    if (!mounted) return;
+    setState(() => _copied = true);
+    _resetTimer?.cancel();
+    _resetTimer = Timer(const Duration(milliseconds: 1400), () {
+      if (mounted) setState(() => _copied = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _copied
+        ? const Color(0xFF10B981)
+        : VyomaColors.textMuted;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _handleCopy,
+        child: Tooltip(
+          message: _copied ? 'Copied' : 'Copy',
+          waitDuration: const Duration(milliseconds: 400),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 160),
+            transitionBuilder: (child, anim) =>
+                FadeTransition(opacity: anim, child: child),
+            child: Icon(
+              _copied ? Icons.check_rounded : Icons.copy_rounded,
+              key: ValueKey<bool>(_copied),
+              size: 12,
+              color: color,
             ),
           ),
         ),
