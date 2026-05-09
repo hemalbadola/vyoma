@@ -500,6 +500,54 @@ class WarRoomViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Calendar + timetable snapshot for [VyomaPolicyEngine.evaluate].
+  Future<PolicyContext> _buildPolicyEvaluationContext() async {
+    final existingEventIds = <String>{};
+    try {
+      final events = await _calendarService.syncEvents(maxResults: 20);
+      for (final e in events) {
+        if (e.id != null) existingEventIds.add(e.id!);
+      }
+    } catch (_) {}
+
+    final existingTimetableDays =
+        _timetableService.slots.map((s) => s.dayOfWeek).toSet();
+
+    return PolicyContext(
+      now: DateTime.now(),
+      userId: 'local_user',
+      existingEventIds: existingEventIds,
+      existingTimetableDays: existingTimetableDays,
+      userHasCalendarAccess: _calendarService.isCalendarAuthed,
+    );
+  }
+
+  /// When the model embedded `vyoma-action-v1` JSON in a Vyoma bubble but
+  /// parsing failed (e.g. `notes` was a List), [_pendingDecision] was never set.
+  /// User later says "go ahead" / "schedule them" — recover JSON from chat
+  /// history and run policy + execution without another LLM round-trip.
+  AIActionProposal? _recoverLatestTimetableProposalFromHistory() {
+    for (final m in _messages.reversed.take(24)) {
+      if (m.sender != 'VYOMA') continue;
+      final p = _aiService.tryParseProposal(m.text);
+      if (p == null || p.actions.isEmpty) continue;
+      final timetable = p.intent == AIIntent.timetableUpdate ||
+          p.actions.any(
+            (a) =>
+                a.type == AIActionType.timetableReplaceDay ||
+                a.type == AIActionType.timetableClearDay,
+          );
+      if (timetable) return p;
+    }
+    return null;
+  }
+
+  bool _isScheduleExtractedSlotsPhrase(String lower) {
+    return RegExp(
+      r'\b(schedule|apply|load|add|save)\s+(them|it|those|that|the\s+slots|the\s+classes|my\s+classes)\b',
+    ).hasMatch(lower);
+  }
+
   Future<void> submitCommand(String text) async {
     if (_handleControlCommand(text.trim())) return;
 
@@ -566,6 +614,99 @@ class WarRoomViewModel extends ChangeNotifier {
       await _handleCalendarDeleteRequest(text);
       _selectedImageBytes = null;
       return;
+    }
+
+    // Orphan confirmation: model returned protocol JSON in a Vyoma bubble but
+    // parsing failed on first pass (e.g. notes was a List). User confirms with
+    // "go ahead" / "schedule them" — recover JSON from chat and execute here
+    // instead of calling the LLM again (which would return chat.only, 0 actions).
+    if (_pendingDecision == null &&
+        (_isApprovalPhrase(lowerInput) ||
+            _isScheduleExtractedSlotsPhrase(lowerInput))) {
+      final recovered = _recoverLatestTimetableProposalFromHistory();
+      if (recovered != null) {
+        _isProcessing = true;
+        notifyListeners();
+        try {
+          final context = await _buildPolicyEvaluationContext();
+          final decision = _policyEngine.evaluate(recovered, context);
+
+          for (final d in decision.actionDecisions) {
+            if (d.isDenied) {
+              await _auditLogger.record(protocol_audit.AuditEvent.policyDeny(
+                action: d.action,
+                reason: d.reason ?? 'policy violation',
+              ));
+              await app_audit.AuditLogger.log(
+                eventType: d.action.type.value,
+                source: 'ai',
+                result: 'failed:${d.reason ?? 'policy violation'}',
+                inputSnippet: text,
+                aiIntent: recovered.intent.value,
+              );
+            }
+          }
+
+          final autoExecute = decision.actionDecisions
+              .where((d) => d.isExecutable)
+              .toList();
+          if (autoExecute.isNotEmpty) {
+            final summary = await _executionEngine.execute(decision);
+            if (summary.successCount > 0) {
+              for (final d in autoExecute) {
+                await app_audit.AuditLogger.log(
+                  eventType: d.action.type.value,
+                  source: 'ai',
+                  result: 'success',
+                  inputSnippet: text,
+                  aiIntent: recovered.intent.value,
+                );
+              }
+            }
+            if (summary.successCount > 0) {
+              _addSystemStatus(
+                "Executed ${summary.successCount} action${summary.successCount > 1 ? 's' : ''}.",
+                persist: false,
+              );
+            }
+            if (summary.failureCount > 0) {
+              _addSystemStatus(
+                "${summary.failureCount} action${summary.failureCount > 1 ? 's' : ''} failed.",
+                persist: false,
+              );
+            }
+          }
+
+          for (final d in decision.actionDecisions.where((d) => d.isDenied)) {
+            _addSystemStatus(
+              "Action denied: ${d.action.type.value} — ${d.reason ?? 'policy violation'}",
+              persist: false,
+            );
+          }
+
+          final pending = decision.actionDecisions
+              .where((d) => d.needsConfirmation)
+              .toList();
+          if (pending.isNotEmpty) {
+            _pendingDecision = decision;
+            await approvePendingDecision();
+          } else if (autoExecute.isEmpty) {
+            _addMessage(
+              'VYOMA',
+              'Nothing from that timetable plan could be applied (policy blocked '
+              'or no confirmable actions left).',
+            );
+          }
+        } catch (e, st) {
+          debugPrint('WarRoomViewModel: recovered timetable execution error: $e\n$st');
+          _addSystemError('Recovered timetable execution', e);
+        } finally {
+          _isProcessing = false;
+          _selectedImageBytes = null;
+          notifyListeners();
+        }
+        return;
+      }
     }
 
     await _captureDeferredTaskSignals(text);
@@ -745,25 +886,7 @@ class WarRoomViewModel extends ChangeNotifier {
       
       if (proposal != null && proposal.actions.isNotEmpty) {
         // Run through PolicyEngine
-        final existingEventIds = <String>{};
-        try {
-          final events = await _calendarService.syncEvents(maxResults: 20);
-          for (final e in events) {
-            if (e.id != null) existingEventIds.add(e.id!);
-          }
-        } catch (_) {}
-
-        final existingTimetableDays = _timetableService.slots
-            .map((s) => s.dayOfWeek)
-            .toSet();
-
-        final context = PolicyContext(
-          now: DateTime.now(),
-          userId: 'local_user', // Single-user app for now
-          existingEventIds: existingEventIds,
-          existingTimetableDays: existingTimetableDays,
-          userHasCalendarAccess: _calendarService.isCalendarAuthed,
-        );
+        final context = await _buildPolicyEvaluationContext();
 
         final decision = _policyEngine.evaluate(proposal, context);
 
