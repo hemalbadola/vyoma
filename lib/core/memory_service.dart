@@ -147,6 +147,10 @@ class MemoryService extends ChangeNotifier {
     });
   }
 
+  Future<void> updateSubjects(List<String> subjects) async {
+    await updateSegment('user_subjects', subjects.take(3).toList());
+  }
+
   /// Returns true if the user has completed onboarding (i.e., has an identity)
   bool get hasOnboarded => _memory.containsKey(kIdentity);
   

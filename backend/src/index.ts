@@ -22,7 +22,9 @@ const GEMINI_KEYS = [
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+// 25MB ceiling so vision requests with base64 images don't 413.
+// Express default is 100KB which is < a single base64-encoded screenshot.
+app.use(express.json({ limit: '25mb' }));
 
 const port = process.env.PORT || 3000;
 

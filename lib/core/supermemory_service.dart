@@ -18,7 +18,7 @@ class SupermemoryService {
   Map<String, String> get _headers => {
     'Content-Type': 'application/json',
     'Authorization': 'Bearer $_apiKey',
-    if (projectTag != null) 'x-sm-project': projectTag!,
+    ...?projectTag != null ? {'x-sm-project': projectTag!} : null,
   };
 
   void _updateDiagnostics({
@@ -73,7 +73,7 @@ class SupermemoryService {
         body: jsonEncode({
           'content': content,
           'type': type,
-          if (tags != null) 'tags': tags,
+          ...?tags != null ? {'tags': tags} : null,
         }),
       ).timeout(_timeout);
 

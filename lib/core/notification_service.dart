@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:async';
 
 class _PendingNotification {
   final int id;
@@ -35,27 +36,71 @@ class _PendingNotification {
 }
 
 class NotificationRecord {
+  final String id;
   final String title;
   final String body;
   final DateTime sentAt;
+  final bool isRead;
+  final bool isDismissed;
+  final DateTime? readAt;
 
   NotificationRecord({
+    required this.id,
     required this.title,
     required this.body,
     required this.sentAt,
+    this.isRead = false,
+    this.isDismissed = false,
+    this.readAt,
   });
 
   Map<String, dynamic> toJson() => {
+        'id': id,
         'title': title,
         'body': body,
         'sentAt': sentAt.toIso8601String(),
+        'isRead': isRead,
+        'isDismissed': isDismissed,
+        'readAt': readAt?.toIso8601String(),
       };
 
   factory NotificationRecord.fromJson(Map<String, dynamic> json) {
+    final sentAtRaw = (json['sentAt'] ?? '').toString();
+    final sentAt = DateTime.tryParse(sentAtRaw) ?? DateTime.now();
+    final fallbackId =
+        '${sentAt.millisecondsSinceEpoch}_${(json['title'] ?? '').toString().hashCode}';
     return NotificationRecord(
+      id: (json['id'] as String?)?.trim().isNotEmpty == true
+          ? json['id'] as String
+          : fallbackId,
       title: json['title'] as String,
       body: json['body'] as String,
-      sentAt: DateTime.parse(json['sentAt'] as String),
+      sentAt: sentAt,
+      isRead: json['isRead'] as bool? ?? false,
+      isDismissed: json['isDismissed'] as bool? ?? false,
+      readAt: (json['readAt'] as String?) != null
+          ? DateTime.tryParse(json['readAt'] as String)
+          : null,
+    );
+  }
+
+  NotificationRecord copyWith({
+    String? id,
+    String? title,
+    String? body,
+    DateTime? sentAt,
+    bool? isRead,
+    bool? isDismissed,
+    DateTime? readAt,
+  }) {
+    return NotificationRecord(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      body: body ?? this.body,
+      sentAt: sentAt ?? this.sentAt,
+      isRead: isRead ?? this.isRead,
+      isDismissed: isDismissed ?? this.isDismissed,
+      readAt: readAt ?? this.readAt,
     );
   }
 }
@@ -67,6 +112,8 @@ class NotificationService {
   int _idSeed = 2000;
   static const String _pendingKey = 'vyoma_pending_notifications';
   static const String _historyKey = 'vyoma_notification_history';
+  final StreamController<int> _unreadCountController = StreamController<int>.broadcast();
+  Stream<int> get unreadCount => _unreadCountController.stream;
 
   Future<void> ensureInitialized() async {
     if (_initialized) return;
@@ -126,7 +173,12 @@ class NotificationService {
 
     await _plugin.show(_nextId(), title, body, details);
     await _appendHistory(
-      NotificationRecord(title: title, body: body, sentAt: DateTime.now()),
+      NotificationRecord(
+        id: _nextRecordId(),
+        title: title,
+        body: body,
+        sentAt: DateTime.now(),
+      ),
     );
   }
 
@@ -136,10 +188,39 @@ class NotificationService {
     final list = raw
         .map((e) => NotificationRecord.fromJson(
             Map<String, dynamic>.from(jsonDecode(e) as Map)))
+        .where((e) => !e.isDismissed)
         .toList();
     list.sort((a, b) => b.sentAt.compareTo(a.sentAt));
     if (list.length <= limit) return list;
     return list.sublist(0, limit);
+  }
+
+  Future<void> markRead(String id) async {
+    final all = await _loadAllHistory();
+    final updated = all.map((entry) {
+      if (entry.id != id || entry.isRead) return entry;
+      return entry.copyWith(isRead: true, readAt: DateTime.now());
+    }).toList();
+    await _saveAllHistory(updated);
+  }
+
+  Future<void> markAllRead() async {
+    final all = await _loadAllHistory();
+    final now = DateTime.now();
+    final updated = all.map((entry) {
+      if (entry.isRead || entry.isDismissed) return entry;
+      return entry.copyWith(isRead: true, readAt: now);
+    }).toList();
+    await _saveAllHistory(updated);
+  }
+
+  Future<void> dismiss(String id) async {
+    final all = await _loadAllHistory();
+    final updated = all.map((entry) {
+      if (entry.id != id) return entry;
+      return entry.copyWith(isDismissed: true);
+    }).toList();
+    await _saveAllHistory(updated);
   }
 
   Future<void> scheduleInApp(
@@ -218,17 +299,51 @@ class NotificationService {
   }
 
   Future<void> _appendHistory(NotificationRecord record) async {
+    final existing = await _loadAllHistory();
+    existing.add(record);
+    await _saveAllHistory(existing);
+  }
+
+  Future<List<NotificationRecord>> _loadAllHistory() async {
     final prefs = await SharedPreferences.getInstance();
-    final existing = prefs.getStringList(_historyKey) ?? <String>[];
-    existing.add(jsonEncode(record.toJson()));
-    if (existing.length > 300) {
-      existing.removeRange(0, existing.length - 300);
+    final raw = prefs.getStringList(_historyKey) ?? <String>[];
+    return raw
+        .map((e) => NotificationRecord.fromJson(
+            Map<String, dynamic>.from(jsonDecode(e) as Map)))
+        .toList();
+  }
+
+  Future<void> _saveAllHistory(List<NotificationRecord> records) async {
+    final prefs = await SharedPreferences.getInstance();
+    final normalized = records.toList()
+      ..sort((a, b) => a.sentAt.compareTo(b.sentAt));
+    if (normalized.length > 300) {
+      normalized.removeRange(0, normalized.length - 300);
     }
-    await prefs.setStringList(_historyKey, existing);
+    final encoded = normalized.map((e) => jsonEncode(e.toJson())).toList();
+    await prefs.setStringList(_historyKey, encoded);
+    await _emitUnreadCount(normalized);
+  }
+
+  Future<void> _emitUnreadCount([List<NotificationRecord>? cached]) async {
+    final records = cached ?? await _loadAllHistory();
+    final count = records.where((r) => !r.isDismissed && !r.isRead).length;
+    if (!_unreadCountController.isClosed) {
+      _unreadCountController.add(count);
+    }
+  }
+
+  String _nextRecordId() {
+    final millis = DateTime.now().millisecondsSinceEpoch;
+    return 'n_${millis}_${_nextId()}';
   }
 
   int _nextId() {
     _idSeed += 1;
     return _idSeed;
+  }
+
+  void dispose() {
+    _unreadCountController.close();
   }
 }

@@ -51,6 +51,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'dart:ui' as ui;
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -808,11 +809,11 @@ class _ArrowPainter extends CustomPainter {
     final path = Path();
     path.moveTo(end.dx, end.dy);
     path.lineTo(
-        end.dx - headSize * ui.cos(dir - 0.4),
-        end.dy - headSize * ui.sin(dir - 0.4));
+        end.dx - headSize * math.cos(dir - 0.4),
+        end.dy - headSize * math.sin(dir - 0.4));
     path.lineTo(
-        end.dx - headSize * ui.cos(dir + 0.4),
-        end.dy - headSize * ui.sin(dir + 0.4));
+        end.dx - headSize * math.cos(dir + 0.4),
+        end.dy - headSize * math.sin(dir + 0.4));
     path.close();
     canvas.drawPath(path, headPaint);
   }

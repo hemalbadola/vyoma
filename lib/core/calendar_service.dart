@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:vyoma/agent_debug_log.dart';
 import 'package:googleapis/calendar/v3.dart';
 import 'package:flutter/foundation.dart';
 import 'auth_manager.dart';
@@ -32,6 +33,7 @@ class CalendarService {
   // Cooldown: don't retry init if it recently failed (prevents popup spam).
   DateTime? _lastInitFailure;
   static const _initCooldown = Duration(minutes: 5);
+  bool _allowInteractiveInit = false;
 
   Duration? get initCooldownRemaining {
     final failedAt = _lastInitFailure;
@@ -45,6 +47,23 @@ class CalendarService {
   bool get _isInCooldown => initCooldownRemaining != null;
 
   CalendarService(this._authManager);
+
+  Future<void> _debugLog({
+    required String hypothesisId,
+    required String location,
+    required String message,
+    Map<String, dynamic>? data,
+  }) async {
+    // #region agent log
+    await agentDebugNdjsonLog(
+      runId: 'pre-fix-1',
+      hypothesisId: hypothesisId,
+      location: location,
+      message: message,
+      data: data,
+    );
+    // #endregion
+  }
 
   /// Whether Google Calendar OAuth is currently active.
   /// True if the calendar API client has been initialized successfully.
@@ -71,10 +90,20 @@ class CalendarService {
     _initInFlight = completer;
 
     try {
-      _calendarApi = await _authManager.getCalendarApi();
+      final allowInteractive = _allowInteractiveInit;
+      _allowInteractiveInit = false;
+      _calendarApi = await _authManager.getCalendarApi(
+        allowInteractive: allowInteractive,
+      );
       _lastInitFailure = null; // Clear cooldown on success.
       completer.complete();
     } on AuthConfigurationException catch (e) {
+      await _debugLog(
+        hypothesisId: 'H5',
+        location: 'calendar_service.dart:_ensureInitialized',
+        message: 'Auth config exception during init',
+        data: {'error': e.toString()},
+      );
       completer.completeError(e);
       rethrow;
     } on AuthCooldownException catch (e) {
@@ -96,9 +125,23 @@ class CalendarService {
     _calendarApi = null;
   }
 
+  Future<void> _handleAuthRuntimeFailure(String reason) async {
+    _lastInitFailure = DateTime.now();
+    debugPrint(
+      'CalendarService: auth runtime failure -> cooldown set: $reason',
+    );
+    _invalidateClient();
+    try {
+      await _authManager.signOut();
+    } catch (e) {
+      debugPrint('CalendarService: signOut during auth failure failed: $e');
+    }
+  }
+
   /// Allows an explicit user action (Retry button) to attempt auth immediately.
   void clearInitCooldown() {
     _lastInitFailure = null;
+    _allowInteractiveInit = true;
     _authManager.clearAuthCooldown();
   }
 
@@ -157,8 +200,7 @@ class CalendarService {
         debugPrint(
           'CalendarService: 401/403 — invalidating client for re-auth',
         );
-        _invalidateClient();
-        await _authManager.signOut();
+        await _handleAuthRuntimeFailure('http_${e.status}');
       }
       rethrow;
     } catch (e) {
@@ -170,8 +212,7 @@ class CalendarService {
         debugPrint(
           'CalendarService: Auth token refresh failed. Forcing re-auth.',
         );
-        _invalidateClient();
-        await _authManager.signOut();
+        await _handleAuthRuntimeFailure('token_refresh_failure');
       }
       rethrow;
     }
@@ -202,8 +243,7 @@ class CalendarService {
         debugPrint(
           'CalendarService: 401/403 — invalidating client for re-auth',
         );
-        _invalidateClient();
-        await _authManager.signOut();
+        await _handleAuthRuntimeFailure('http_${e.status}');
       }
       rethrow;
     } catch (e) {
@@ -215,8 +255,7 @@ class CalendarService {
         debugPrint(
           'CalendarService: Auth token refresh failed. Forcing re-auth.',
         );
-        _invalidateClient();
-        await _authManager.signOut();
+        await _handleAuthRuntimeFailure('token_refresh_failure');
       }
       rethrow;
     }
@@ -254,24 +293,22 @@ class CalendarService {
     if (event.start?.dateTime != null) {
       final start = event.start!.dateTime!;
       event.start = EventDateTime(
-        dateTime: _wallClockToInstant(start, tz),
+        dateTime: _preserveWallClockTime(start),
         timeZone: tz,
       );
     }
     if (event.end?.dateTime != null) {
       final end = event.end!.dateTime!;
       event.end = EventDateTime(
-        dateTime: _wallClockToInstant(end, tz),
+        dateTime: _preserveWallClockTime(end),
         timeZone: tz,
       );
     }
   }
 
-  DateTime _wallClockToInstant(DateTime wallClock, String? timeZone) {
-    final local = wallClock.isUtc ? wallClock.toLocal() : wallClock;
-    final offsetMinutes = _offsetMinutesForTimeZone(timeZone);
-
-    return DateTime.utc(
+  DateTime _preserveWallClockTime(DateTime value) {
+    final local = value.isUtc ? value.toLocal() : value;
+    return DateTime(
       local.year,
       local.month,
       local.day,
@@ -280,36 +317,7 @@ class CalendarService {
       local.second,
       local.millisecond,
       local.microsecond,
-    ).subtract(Duration(minutes: offsetMinutes));
-  }
-
-  int _offsetMinutesForTimeZone(String? timeZone) {
-    switch (timeZone) {
-      case 'UTC':
-        return 0;
-      case 'Asia/Kolkata':
-        return 330;
-      case 'Europe/Berlin':
-        return 60;
-      case 'Europe/Athens':
-        return 120;
-      case 'Asia/Dubai':
-        return 240;
-      case 'Asia/Singapore':
-        return 480;
-      case 'Asia/Tokyo':
-        return 540;
-      case 'America/New_York':
-        return -300;
-      case 'America/Chicago':
-        return -360;
-      case 'America/Denver':
-        return -420;
-      case 'America/Los_Angeles':
-        return -480;
-      default:
-        return DateTime.now().timeZoneOffset.inMinutes;
-    }
+    );
   }
 
   /// Finds and deletes all Vyoma-generated timetable events.

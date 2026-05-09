@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../core/memory_service.dart';
 import '../core/permission_manager.dart';
+import '../core/notification_service.dart';
 import '../core/wakeup_service.dart';
 import 'screens/wakeup_screen.dart';
 import 'tabs/mission_tab.dart';
@@ -15,9 +16,11 @@ import 'widgets/vault_journal_view.dart';
 import 'screens/friends_hub_screen.dart';
 import 'screens/profile_setup_screen.dart';
 import 'screens/settings_hub_screen.dart';
+import 'screens/notifications_screen.dart';
 import '../core/user_service.dart';
 import '../core/telemetry_service.dart';
-import 'package:google_fonts/google_fonts.dart';
+import '../tutorial/tutorial_controller.dart';
+import '../tutorial/tutorial_keys.dart';
 
 class _OpenCommsIntent extends Intent {
   const _OpenCommsIntent();
@@ -33,6 +36,8 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
 
+  TutorialController? _tutorialController;
+
   final List<Widget> _tabs = [
     const MissionTab(),
     const IntelTab(),
@@ -41,15 +46,86 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     const FriendsHubScreen(), // Tab Index 4
   ];
 
+  void _tutorialListener() {
+    if (!mounted) return;
+    final tc = _tutorialController;
+    if (tc == null) return;
+
+    if (!tc.isActive) {
+      _closeChatSheetsForTutorial();
+      return;
+    }
+    _applyTutorialPresentation(tc);
+  }
+
+  void _closeChatSheetsForTutorial() {
+    final nav = Navigator.of(context, rootNavigator: true);
+    var guard = 0;
+    while (ChatSheetPresentation.presentCount > 0 && nav.canPop() && guard < 8) {
+      nav.pop();
+      guard++;
+    }
+  }
+
+  void _applyTutorialPresentation(TutorialController tc) {
+    final nav = Navigator.of(context, rootNavigator: true);
+    final idx = tc.currentStepIndex;
+    final needsChat = idx == 0 || idx == 5;
+
+    if (needsChat) {
+      if (ChatSheetPresentation.presentCount == 0) {
+        nav.push(ChatSheet.slideUpRoute());
+      }
+    } else {
+      var guard = 0;
+      while (ChatSheetPresentation.presentCount > 0 && nav.canPop() && guard < 8) {
+        nav.pop();
+        guard++;
+      }
+    }
+
+    var tabIndex = _currentIndex;
+    switch (idx) {
+      case 1:
+        tabIndex = 0;
+        break;
+      case 2:
+        tabIndex = 3;
+        break;
+      case 3:
+        tabIndex = 4;
+        break;
+      case 4:
+        tabIndex = 2;
+        break;
+      default:
+        break;
+    }
+    if (tabIndex != _currentIndex) {
+      setState(() => _currentIndex = tabIndex);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _checkSystemStatus();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final tc = context.read<TutorialController>();
+      _tutorialController = tc;
+      tc.addListener(_tutorialListener);
+      await tc.hydrateFromPrefs();
+      if (!mounted) return;
+      _tutorialListener();
+    });
   }
 
   @override
   void dispose() {
+    _tutorialController?.removeListener(_tutorialListener);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -94,28 +170,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _showComms(BuildContext context) {
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => const ChatSheet(),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          const begin = Offset(0.0, 1.0);
-          const end = Offset.zero;
-          const curve = Curves.easeOutQuart;
-
-          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
-
-          return SlideTransition(
-            position: animation.drive(tween),
-            child: child,
-          );
-        },
-      ),
-    );
+    Navigator.of(context, rootNavigator: true).push(ChatSheet.slideUpRoute());
   }
 
   @override
   Widget build(BuildContext context) {
     final userSvc = context.watch<UserService>();
+    final memory = context.watch<MemoryService>();
     if (!userSvc.isProfileLoaded) {
       return const Scaffold(
         backgroundColor: Colors.black,
@@ -124,9 +185,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
     
     if (!userSvc.hasProfile) {
+      if (memory.hasOnboarded) {
+        return _buildHomeScaffold(context);
+      }
       return const ProfileSetupScreen();
     }
 
+    return _buildHomeScaffold(context);
+  }
+
+  Widget _buildHomeScaffold(BuildContext context) {
     return Shortcuts(
       shortcuts: const <ShortcutActivator, Intent>{
         SingleActivator(LogicalKeyboardKey.keyK, meta: true): _OpenCommsIntent(),
@@ -164,6 +232,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 // 2. Floating Command Dock
                 CommandDock(
                   currentIndex: _currentIndex,
+                  navWarRoomKey: VyomaTutorialKeys.navWarRoom,
+                  navJournalKey: VyomaTutorialKeys.navJournal,
+                  navScheduleKey: VyomaTutorialKeys.navTimetable,
+                  navCircleKey: VyomaTutorialKeys.navFriends,
                   onTap: (index) => setState(() => _currentIndex = index),
                   onCommand: () => _showComms(context),
                 ),
@@ -189,6 +261,43 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ),
                       child: Column(
                         children: [
+                          StreamBuilder<int>(
+                            stream: context.read<NotificationService>().unreadCount,
+                            builder: (context, snapshot) {
+                              final unread = snapshot.data ?? 0;
+                              return Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  _UtilityButton(
+                                    icon: Icons.notifications_rounded,
+                                    tooltip: 'Notification Inbox',
+                                    color: Colors.white70,
+                                    onTap: () {
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) => const NotificationsScreen(),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  if (unread > 0)
+                                    Positioned(
+                                      top: 2,
+                                      right: 2,
+                                      child: Container(
+                                        width: 8,
+                                        height: 8,
+                                        decoration: const BoxDecoration(
+                                          color: Color(0xFF10B981),
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 8),
                           _UtilityButton(
                             icon: Icons.settings_rounded,
                             tooltip: 'Settings Hub',

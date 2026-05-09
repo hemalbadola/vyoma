@@ -566,15 +566,40 @@ class _VaultJournalViewState extends State<VaultJournalView> {
                         if (recent.isEmpty) {
                           return Container(
                             width: double.infinity,
-                            padding: const EdgeInsets.all(12),
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
                             decoration: BoxDecoration(
                               color: const Color(0xFF111827),
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: BorderRadius.circular(14),
                               border: Border.all(color: const Color(0xFF2A3442), width: 0.8),
                             ),
-                            child: Text(
-                              'No captures yet. Use "Daily reflection" and commit one honest entry to start building your context graph.',
-                              style: GoogleFonts.inter(color: const Color(0xFFB6C2CF), fontSize: 12, height: 1.4),
+                            child: Column(
+                              children: [
+                                SvgPicture.asset(
+                                  'vyoma-icon-192.svg',
+                                  width: 48,
+                                  height: 48,
+                                ),
+                                const SizedBox(height: 14),
+                                Text(
+                                  'Nothing here yet',
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts.inter(
+                                    color: Colors.white.withValues(alpha: 0.92),
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Your reflections stay private — only you and Vyoma see them.',
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts.inter(
+                                    color: const Color(0xFFB6C2CF),
+                                    fontSize: 13,
+                                    height: 1.45,
+                                  ),
+                                ),
+                              ],
                             ),
                           );
                         }

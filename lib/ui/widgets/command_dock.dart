@@ -4,19 +4,34 @@ import 'package:flutter/material.dart';
 import '../vyoma_theme.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../tutorial/tutorial_keys.dart';
 
 class CommandDock extends StatelessWidget {
   final int currentIndex;
   final Function(int) onTap;
   final VoidCallback onCommand;
+  final GlobalKey? navWarRoomKey;
+  final GlobalKey? navIntelKey;
+  final GlobalKey? navJournalKey;
+  final GlobalKey? navScheduleKey;
+  final GlobalKey? navCircleKey;
 
   const CommandDock({
-    super.key, 
-    required this.currentIndex, 
+    super.key,
+    required this.currentIndex,
     required this.onTap,
-    required this.onCommand
+    required this.onCommand,
+    this.navWarRoomKey,
+    this.navIntelKey,
+    this.navJournalKey,
+    this.navScheduleKey,
+    this.navCircleKey,
   });
 
+  Widget _keyWrap(GlobalKey? key, Widget child) {
+    if (key == null) return child;
+    return KeyedSubtree(key: key, child: child);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,6 +50,7 @@ class CommandDock extends StatelessWidget {
               child: BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
                 child: Container(
+                  key: VyomaTutorialKeys.commandDock,
                   padding: EdgeInsets.symmetric(
                     horizontal: isCompact ? 8 : 10,
                     vertical: isCompact ? 8 : 10,
@@ -54,28 +70,34 @@ class CommandDock extends StatelessWidget {
                   child: Row(
                     children: [
                       Expanded(
-                        child: _NavItem(
-                          icon: Icons.home_rounded,
-                          label: 'TODAY',
-                          compact: isCompact,
-                          isSelected: currentIndex == 0,
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            onTap(0);
-                          },
+                        child: _keyWrap(
+                          navWarRoomKey,
+                          _NavItem(
+                            icon: Icons.home_rounded,
+                            label: 'TODAY',
+                            compact: isCompact,
+                            isSelected: currentIndex == 0,
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              onTap(0);
+                            },
+                          ),
                         ),
                       ),
                       SizedBox(width: isCompact ? 6 : 8),
                       Expanded(
-                        child: _NavItem(
-                          icon: Icons.analytics_rounded,
-                          label: 'PROGRESS',
-                          compact: isCompact,
-                          isSelected: currentIndex == 1,
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            onTap(1);
-                          },
+                        child: _keyWrap(
+                          navIntelKey,
+                          _NavItem(
+                            icon: Icons.analytics_rounded,
+                            label: 'PROGRESS',
+                            compact: isCompact,
+                            isSelected: currentIndex == 1,
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              onTap(1);
+                            },
+                          ),
                         ),
                       ),
                       SizedBox(width: isCompact ? 6 : 8),
@@ -85,41 +107,50 @@ class CommandDock extends StatelessWidget {
                       ),
                       SizedBox(width: isCompact ? 6 : 8),
                       Expanded(
-                        child: _NavItem(
-                          icon: Icons.auto_stories_rounded,
-                          label: 'JOURNAL',
-                          compact: isCompact,
-                          isSelected: currentIndex == 2,
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            onTap(2);
-                          },
+                        child: _keyWrap(
+                          navJournalKey,
+                          _NavItem(
+                            icon: Icons.auto_stories_rounded,
+                            label: 'JOURNAL',
+                            compact: isCompact,
+                            isSelected: currentIndex == 2,
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              onTap(2);
+                            },
+                          ),
                         ),
                       ),
                       SizedBox(width: isCompact ? 6 : 8),
                       Expanded(
-                        child: _NavItem(
-                          icon: Icons.calendar_view_week_rounded,
-                          label: 'SCHEDULE',
-                          compact: isCompact,
-                          isSelected: currentIndex == 3,
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            onTap(3);
-                          },
+                        child: _keyWrap(
+                          navScheduleKey,
+                          _NavItem(
+                            icon: Icons.calendar_view_week_rounded,
+                            label: 'SCHEDULE',
+                            compact: isCompact,
+                            isSelected: currentIndex == 3,
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              onTap(3);
+                            },
+                          ),
                         ),
                       ),
                       SizedBox(width: isCompact ? 6 : 8),
                       Expanded(
-                        child: _NavItem(
-                          icon: Icons.group_work_rounded,
-                          label: 'CIRCLE',
-                          compact: isCompact,
-                          isSelected: currentIndex == 4,
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            onTap(4);
-                          },
+                        child: _keyWrap(
+                          navCircleKey,
+                          _NavItem(
+                            icon: Icons.group_work_rounded,
+                            label: 'CIRCLE',
+                            compact: isCompact,
+                            isSelected: currentIndex == 4,
+                            onTap: () {
+                              HapticFeedback.selectionClick();
+                              onTap(4);
+                            },
+                          ),
                         ),
                       ),
                     ],

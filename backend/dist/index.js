@@ -6,13 +6,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const firebase_admin_1 = __importDefault(require("firebase-admin"));
-// Initialize Firebase Admin (uses default credentials locally or via Heroku Env)
+// Initialize Firebase Admin (uses explicit projectId for verifyIdToken)
 firebase_admin_1.default.initializeApp({
-    credential: firebase_admin_1.default.credential.applicationDefault()
+    projectId: 'vyoma-in'
 });
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)());
-app.use(express_1.default.json());
+// 25MB ceiling so vision requests with base64 images don't 413.
+// Express default is 100KB which is < a single base64-encoded screenshot.
+app.use(express_1.default.json({ limit: '25mb' }));
 const port = process.env.PORT || 3000;
 // Example API endpoint for Gemini
 app.post('/api/gemini/generate', async (req, res) => {
@@ -47,6 +49,66 @@ app.post('/api/gemini/generate', async (req, res) => {
     }
     catch (error) {
         console.error('API Error:', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+// API endpoint for Nvidia
+app.post('/api/nvidia/generate', async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
+        }
+        const idToken = authHeader.split('Bearer ')[1];
+        const decodedToken = await firebase_admin_1.default.auth().verifyIdToken(idToken);
+        if (!decodedToken.uid)
+            return res.status(401).json({ error: 'Unauthorized' });
+        const apiKey = process.env.NVIDIA_API_KEY;
+        if (!apiKey)
+            return res.status(500).json({ error: 'Server configuration error' });
+        const nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(req.body),
+        });
+        const data = await nvidiaRes.json();
+        res.status(nvidiaRes.status).json(data);
+    }
+    catch (error) {
+        console.error('Nvidia API Error:', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+// API endpoint for Grok
+app.post('/api/grok/generate', async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
+        }
+        const idToken = authHeader.split('Bearer ')[1];
+        const decodedToken = await firebase_admin_1.default.auth().verifyIdToken(idToken);
+        if (!decodedToken.uid)
+            return res.status(401).json({ error: 'Unauthorized' });
+        const apiKey = process.env.GROK_API_KEY;
+        if (!apiKey)
+            return res.status(500).json({ error: 'Server configuration error' });
+        const grokRes = await fetch('https://api.x.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(req.body),
+        });
+        const data = await grokRes.json();
+        res.status(grokRes.status).json(data);
+    }
+    catch (error) {
+        console.error('Grok API Error:', error);
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });

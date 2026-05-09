@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'vyoma_colors.dart';
-import 'vyoma_text_styles.dart';
 
 class VyomaTheme {
   static ThemeData get dark => ThemeData.dark().copyWith(

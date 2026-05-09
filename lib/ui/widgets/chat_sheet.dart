@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -6,11 +5,49 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:desktop_drop/desktop_drop.dart';
+import '../../tutorial/tutorial_keys.dart';
+import '../theme/vyoma_colors.dart';
 import '../war_room_viewmodel.dart';
 import 'pending_action_card.dart';
 
+sealed class _ChatBlock {
+  const _ChatBlock();
+}
+
+final class _BlkSys extends _ChatBlock {
+  const _BlkSys(this.msg);
+  final ChatMessage msg;
+}
+
+final class _BlkGrp extends _ChatBlock {
+  const _BlkGrp(this.sender, this.msgs);
+  final String sender;
+  final List<ChatMessage> msgs;
+}
+
+class ChatSheetPresentation {
+  static int presentCount = 0;
+}
+
 class ChatSheet extends StatefulWidget {
   const ChatSheet({super.key});
+
+  /// Slide-up route used everywhere War Room chat is opened (tutorial + manual).
+  static PageRoute<void> slideUpRoute() {
+    return PageRouteBuilder<void>(
+      settings: const RouteSettings(name: 'vyoma_chat_sheet'),
+      pageBuilder: (context, animation, secondaryAnimation) => const ChatSheet(),
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        const begin = Offset(0.0, 1.0);
+        const end = Offset.zero;
+        final tween = Tween(begin: begin, end: end).chain(CurveTween(curve: Curves.easeOutQuart));
+        return SlideTransition(
+          position: animation.drive(tween),
+          child: child,
+        );
+      },
+    );
+  }
 
   @override
   State<ChatSheet> createState() => _ChatSheetState();
@@ -27,14 +64,19 @@ class _ChatSheetState extends State<ChatSheet> with TickerProviderStateMixin {
 
   bool _isDragging = false;
 
+  /// When non-null and equal to the latest error line, the inline banner stays hidden.
+  String? _suppressedBannerText;
+
   @override
   void initState() {
     super.initState();
+    ChatSheetPresentation.presentCount++;
     _controller.addListener(_onTextChanged);
   }
 
   @override
   void dispose() {
+    ChatSheetPresentation.presentCount--;
     _controller.removeListener(_onTextChanged);
     _controller.dispose();
     _scrollController.dispose();
@@ -120,12 +162,364 @@ class _ChatSheetState extends State<ChatSheet> with TickerProviderStateMixin {
     return Icons.terminal_rounded;
   }
 
+  bool _isChatErrorBannerText(String raw) {
+    final t = raw.toLowerCase();
+    if (t.contains('metric integrity')) return false;
+    return t.contains('failed') ||
+        t.contains('unavailable') ||
+        t.contains('authorization failed') ||
+        t.contains('error');
+  }
+
+  String? _latestErrorBannerText(List<ChatMessage> messages) {
+    for (final m in messages.reversed) {
+      if (m.sender != 'SYSTEM') continue;
+      if (_isChatErrorBannerText(m.text)) return m.text;
+    }
+    return null;
+  }
+
+  List<_ChatBlock> _chatBlocksFromMessages(List<ChatMessage> messages) {
+    final blocks = <_ChatBlock>[];
+    List<ChatMessage>? grp;
+    String? grpSender;
+
+    void flushGrp() {
+      if (grp != null && grp!.isNotEmpty && grpSender != null) {
+        blocks.add(_BlkGrp(grpSender!, grp!));
+        grp = null;
+        grpSender = null;
+      }
+    }
+
+    for (final m in messages) {
+      if (m.sender == 'SYSTEM' && m.text.startsWith('[THOUGHT]')) continue;
+
+      if (m.sender == 'SYSTEM') {
+        flushGrp();
+        blocks.add(_BlkSys(m));
+        continue;
+      }
+
+      if (m.sender == grpSender) {
+        grp!.add(m);
+      } else {
+        flushGrp();
+        grpSender = m.sender;
+        grp = [m];
+      }
+    }
+    flushGrp();
+    return blocks;
+  }
+
+  Widget _buildErrorBannerStrip(WarRoomViewModel vm) {
+    final latest = _latestErrorBannerText(vm.messages);
+    if (latest == null || latest == _suppressedBannerText) {
+      return const SizedBox.shrink();
+    }
+    final cleaned = latest.startsWith('> ') ? latest.substring(2) : latest;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: VyomaColors.error.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: VyomaColors.error.withValues(alpha: 0.35)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.error_outline_rounded, color: VyomaColors.error.withValues(alpha: 0.85), size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  cleaned,
+                  style: GoogleFonts.inter(
+                    color: Colors.white.withValues(alpha: 0.88),
+                    fontSize: 13,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.close_rounded, color: Colors.white.withValues(alpha: 0.55), size: 20),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                tooltip: 'Dismiss',
+                onPressed: () => setState(() => _suppressedBannerText = latest),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAiVyomaHeaderRow() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: VyomaColors.info,
+              boxShadow: [
+                BoxShadow(
+                  color: VyomaColors.info.withValues(alpha: 0.45),
+                  blurRadius: 8,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            'Vyoma',
+            style: GoogleFonts.jetBrainsMono(
+              color: VyomaColors.accentBright,
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSystemLine(ChatMessage msg, Color kAccentDim) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      child: Row(
+        children: [
+          Container(
+            width: 3,
+            height: 14,
+            margin: const EdgeInsets.only(right: 8),
+            decoration: BoxDecoration(
+              color: kAccentDim.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              msg.text,
+              style: GoogleFonts.jetBrainsMono(
+                color: Colors.white30,
+                fontSize: 11,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGroupBubbleColumn({
+    required BuildContext context,
+    required String sender,
+    required List<ChatMessage> msgs,
+    required double bubbleMaxWidth,
+    required Color kAccent,
+  }) {
+    final isUser = sender == 'USER';
+
+    final bubbleBg = isUser ? VyomaColors.bgCardHover : VyomaColors.bgCardElevated;
+    final bubbleBorder = isUser ? VyomaColors.borderDefault : VyomaColors.borderSubtle;
+
+    return Align(
+      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
+        child: Column(
+          crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < msgs.length; i++) ...[
+              if (i > 0) const SizedBox(height: 8),
+              _singleBubble(
+                msg: msgs[i],
+                isUser: isUser,
+                kAccent: kAccent,
+                bubbleBg: bubbleBg,
+                bubbleBorder: bubbleBorder,
+                showVyomaHeader: !isUser && i == 0,
+              ),
+            ],
+            const SizedBox(height: 6),
+            Text(
+              _formatTime(msgs.last.timestamp),
+              style: GoogleFonts.jetBrainsMono(
+                color: VyomaColors.textMuted,
+                fontSize: 10,
+                height: 1.1,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _singleBubble({
+    required ChatMessage msg,
+    required bool isUser,
+    required Color kAccent,
+    required Color bubbleBg,
+    required Color bubbleBorder,
+    required bool showVyomaHeader,
+  }) {
+    final isCommandOutput =
+        (!isUser && msg.text.startsWith('Available commands:')) ||
+            (!isUser && msg.text.startsWith('Productivity Stats:'));
+
+    return GestureDetector(
+      onLongPress: () {},
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: isCommandOutput ? 20 : 16,
+          vertical: isCommandOutput ? 16 : 12,
+        ),
+        decoration: BoxDecoration(
+          color: bubbleBg,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(20),
+            topRight: const Radius.circular(20),
+            bottomLeft: Radius.circular(isUser ? 20 : 6),
+            bottomRight: Radius.circular(isUser ? 6 : 20),
+          ),
+          border: Border.all(color: bubbleBorder, width: 0.5),
+          boxShadow: isUser
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    blurRadius: 14,
+                    offset: const Offset(0, 8),
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (showVyomaHeader) _buildAiVyomaHeaderRow(),
+            if (msg.imageBytes != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.memory(
+                    msg.imageBytes!,
+                    fit: BoxFit.cover,
+                    height: 150,
+                  ),
+                ),
+              ),
+            if (isUser && msg.text.startsWith('/'))
+              Text(
+                msg.text,
+                style: GoogleFonts.jetBrainsMono(
+                  color: kAccent,
+                  fontSize: 14,
+                  height: 1.5,
+                  fontWeight: FontWeight.w500,
+                ),
+              )
+            else
+              Text(
+                msg.text,
+                style: isUser
+                    ? GoogleFonts.inter(color: VyomaColors.textPrimary, fontSize: 15, height: 1.5)
+                    : GoogleFonts.inter(
+                        color: VyomaColors.textPrimary.withValues(alpha: 0.92),
+                        fontSize: 14.5,
+                        height: 1.6,
+                      ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStreamingBubble(BuildContext context, WarRoomViewModel vm, Color kVyomaBubble, Color kVyomaBorder) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: kVyomaBubble,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: kVyomaBorder),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildAiVyomaHeaderRow(),
+            if (vm.streamingText.isNotEmpty)
+              Text(
+                vm.streamingText,
+                style: GoogleFonts.inter(
+                  color: VyomaColors.textPrimary.withValues(alpha: 0.92),
+                  fontSize: 14.5,
+                  height: 1.6,
+                ),
+              ),
+            const SizedBox(height: 8),
+            const _TypingDotsPulse(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildThinkingBubble(Color kVyomaBubble, Color kVyomaBorder, Color kAccent) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: kVyomaBubble,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: kVyomaBorder),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 1.5,
+                color: kAccent.withValues(alpha: 0.6),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'thinking...',
+              style: GoogleFonts.jetBrainsMono(color: Colors.white24, fontSize: 11),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Refined palette
     const kSurface = Color(0xFF0A0D0F);
-    const kUserBubble = Color(0xFF141A1F);
-    const kUserBubbleBorder = Color(0xFF1E2A33);
     const kVyomaBubble = Color(0xFF0C1214);
     final kVyomaBorder = const Color(0xFF059669).withValues(alpha: 0.15);
     const kAccent = Color(0xFF10B981);
@@ -279,230 +673,62 @@ class _ChatSheetState extends State<ChatSheet> with TickerProviderStateMixin {
               ),
             ),
             
-            // Chat List or Suggestions
+            // Chat list + inline error banner overlay
             Expanded(
               child: Consumer<WarRoomViewModel>(
-                builder: (context, vm, child) {
+                builder: (context, vm, _) {
                   WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
 
-                  // Show Suggestions if only system messages exist or empty
                   final isFresh = vm.messages.where((m) => m.sender == 'USER').isEmpty;
+                  final blocks = _chatBlocksFromMessages(vm.messages);
+
+                  final messageChildren = <Widget>[
+                    for (final b in blocks)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: switch (b) {
+                          _BlkSys(:final msg) => _buildSystemLine(msg, kAccentDim),
+                          _BlkGrp(:final sender, :final msgs) => _buildGroupBubbleColumn(
+                              context: context,
+                              sender: sender,
+                              msgs: msgs,
+                              bubbleMaxWidth: bubbleMaxWidth,
+                              kAccent: kAccent,
+                            ),
+                        },
+                      ),
+                    if (vm.isStreaming)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _buildStreamingBubble(context, vm, kVyomaBubble, kVyomaBorder),
+                      )
+                    else if (vm.isProcessing)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _buildThinkingBubble(kVyomaBubble, kVyomaBorder, kAccent),
+                      ),
+                    if (isFresh)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _buildTacticalSuggestions(vm),
+                      ),
+                  ];
 
                   return Stack(
+                    clipBehavior: Clip.none,
                     children: [
-                      ListView.separated(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-                        itemCount: vm.messages.length 
-                            + (vm.pendingDecision != null ? 1 : 0)
-                            + (vm.isProcessing ? 1 : 0) 
-                            + (isFresh ? 1 : 0),
-                        separatorBuilder: (context, index) => const SizedBox(height: 12),
-                        itemBuilder: (context, index) {
-                          if (isFresh && index == vm.messages.length + (vm.pendingDecision != null ? 1 : 0)) {
-                             return _buildTacticalSuggestions(vm);
-                          }
-
-                          // PendingActionCard — sits right after the last message
-                          if (vm.pendingDecision != null && index == vm.messages.length) {
-                            final pending = vm.pendingDecision!.pendingConfirmations;
-                            if (pending.isNotEmpty) {
-                              return PendingActionCard(
-                                pendingActions: pending,
-                                onApprove: () => vm.approvePendingDecision(),
-                                onDeny: () => vm.denyPendingDecision(),
-                              );
-                            }
-                          }
-                          
-                          if (index >= vm.messages.length) {
-                             // Live streaming bubble
-                             if (vm.isStreaming) {
-                               return Align(
-                                 alignment: Alignment.centerLeft,
-                                 child: Container(
-                                   constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
-                                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                   decoration: BoxDecoration(
-                                     color: kVyomaBubble,
-                                     borderRadius: BorderRadius.circular(18),
-                                     border: Border.all(color: kVyomaBorder),
-                                   ),
-                                   child: _StreamingText(text: vm.streamingText),
-                                 ),
-                               );
-                             }
-                             // Context gathering spinner
-                             return Align(
-                               alignment: Alignment.centerLeft,
-                               child: Container(
-                                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                                 decoration: BoxDecoration(
-                                   color: kVyomaBubble,
-                                   borderRadius: BorderRadius.circular(18),
-                                   border: Border.all(color: kVyomaBorder),
-                                 ),
-                                 child: Row(
-                                   mainAxisSize: MainAxisSize.min,
-                                   children: [
-                                     SizedBox(
-                                       width: 14, height: 14,
-                                       child: CircularProgressIndicator(
-                                         strokeWidth: 1.5,
-                                         color: kAccent.withValues(alpha: 0.6),
-                                       ),
-                                     ),
-                                     const SizedBox(width: 10),
-                                     Text('thinking...', style: GoogleFonts.jetBrainsMono(color: Colors.white24, fontSize: 11)),
-                                   ],
-                                 ),
-                               ),
-                             );
-                          }
-
-                          final msg = vm.messages[index];
-                          final isUser = msg.sender == 'USER';
-                          final isSystem = msg.sender == 'SYSTEM';
-                          final isThought = isSystem && msg.text.startsWith('[THOUGHT]');
-
-                          // Hide raw thought traces
-                          if (isThought) {
-                            return const SizedBox.shrink();
-                          }
-
-                          // System status line — monospace, subtle
-                          if (isSystem) {
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 3,
-                                    height: 14,
-                                    margin: const EdgeInsets.only(right: 8),
-                                    decoration: BoxDecoration(
-                                      color: kAccentDim.withValues(alpha: 0.3),
-                                      borderRadius: BorderRadius.circular(2),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: Text(
-                                      msg.text,
-                                      style: GoogleFonts.jetBrainsMono(
-                                        color: Colors.white30,
-                                        fontSize: 11,
-                                        height: 1.4,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          }
-
-                          // Check if this is a /help or /stats command output
-                          final isCommandOutput = !isUser && msg.text.startsWith('Available commands:') || 
-                              (!isUser && msg.text.startsWith('Productivity Stats:'));
-
-                          return Align(
-                            alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-                            child: GestureDetector(
-                              onLongPress: () {},
-                              child: Container(
-                                constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: isCommandOutput ? 20 : 16, 
-                                  vertical: isCommandOutput ? 16 : 12,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: isUser ? kUserBubble : kVyomaBubble,
-                                  borderRadius: BorderRadius.only(
-                                    topLeft: const Radius.circular(20),
-                                    topRight: const Radius.circular(20),
-                                    bottomLeft: Radius.circular(isUser ? 20 : 6),
-                                    bottomRight: Radius.circular(isUser ? 6 : 20),
-                                  ),
-                                  border: Border.all(
-                                    color: isUser ? kUserBubbleBorder : kVyomaBorder,
-                                    width: 0.5,
-                                  ),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (!isUser)
-                                      Padding(
-                                        padding: const EdgeInsets.only(bottom: 8),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            SvgPicture.asset(
-                                              'vyoma-icon-192.svg',
-                                              width: 12,
-                                              height: 12,
-                                            ),
-                                            const SizedBox(width: 6),
-                                            Text(
-                                              'Vyoma',
-                                              style: GoogleFonts.jetBrainsMono(
-                                                color: kAccent,
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    if (msg.imageBytes != null)
-                                      Padding(
-                                        padding: const EdgeInsets.only(bottom: 8.0),
-                                        child: ClipRRect(
-                                          borderRadius: BorderRadius.circular(12),
-                                          child: Image.memory(
-                                            msg.imageBytes!,
-                                            fit: BoxFit.cover,
-                                            height: 150,
-                                          ),
-                                        ),
-                                      ),
-                                    // User slash commands get monospace styling
-                                    if (isUser && msg.text.startsWith('/'))
-                                      Text( 
-                                        msg.text,
-                                        style: GoogleFonts.jetBrainsMono(
-                                          color: kAccent,
-                                          fontSize: 14,
-                                          height: 1.5,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      )
-                                    else
-                                      Text( 
-                                        msg.text,
-                                        style: isUser 
-                                           ? GoogleFonts.inter(color: Colors.white, fontSize: 15, height: 1.5)
-                                           : GoogleFonts.inter(
-                                               color: Colors.white.withValues(alpha: 0.92), 
-                                               fontSize: 14.5, 
-                                               height: 1.6,
-                                             ), 
-                                      ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      _formatTime(msg.timestamp),
-                                      style: GoogleFonts.jetBrainsMono(
-                                        color: Colors.white24,
-                                        fontSize: 10,
-                                        height: 1.1,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
+                      Positioned.fill(
+                        child: ListView(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.fromLTRB(16, 52, 16, 20),
+                          children: messageChildren,
+                        ),
+                      ),
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: _buildErrorBannerStrip(vm),
                       ),
                     ],
                   );
@@ -523,6 +749,37 @@ class _ChatSheetState extends State<ChatSheet> with TickerProviderStateMixin {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    Builder(
+                      builder: (context) {
+                        final pending = vm.pendingDecision?.pendingConfirmations ?? [];
+                        return AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 300),
+                          switchInCurve: Curves.easeOutCubic,
+                          switchOutCurve: Curves.easeInCubic,
+                          transitionBuilder: (child, anim) {
+                            return SlideTransition(
+                              position: Tween<Offset>(
+                                begin: const Offset(0, 0.2),
+                                end: Offset.zero,
+                              ).animate(anim),
+                              child: FadeTransition(opacity: anim, child: child),
+                            );
+                          },
+                          child: pending.isEmpty
+                              ? const SizedBox.shrink(key: ValueKey<String>('pending_none'))
+                              : Padding(
+                                  key: ValueKey<int>(pending.length),
+                                  padding: const EdgeInsets.only(bottom: 10),
+                                  child: PendingActionCard(
+                                    key: VyomaTutorialKeys.pendingActionCard,
+                                    pendingActions: pending,
+                                    onApprove: () => vm.submitCommand('go ahead'),
+                                    onDeny: () => vm.denyPendingDecision(),
+                                  ),
+                                ),
+                        );
+                      },
+                    ),
                     // Slash Command Suggestions Overlay
                     if (_showCommandSuggestions)
                       Container(
@@ -654,6 +911,7 @@ class _ChatSheetState extends State<ChatSheet> with TickerProviderStateMixin {
 
                     // Input Row
                     Container(
+                      key: VyomaTutorialKeys.chatInputBar,
                       decoration: BoxDecoration(
                         color: const Color(0xFF141A1E),
                         borderRadius: BorderRadius.circular(26),
@@ -950,6 +1208,67 @@ class _ChatSheetState extends State<ChatSheet> with TickerProviderStateMixin {
   }
 }
 
+/// Three-dot pulse while assistant streams tokens.
+class _TypingDotsPulse extends StatefulWidget {
+  const _TypingDotsPulse();
+
+  @override
+  State<_TypingDotsPulse> createState() => _TypingDotsPulseState();
+}
+
+class _TypingDotsPulseState extends State<_TypingDotsPulse>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(3, (i) {
+            final v = ((_c.value + i * 0.2) % 1.0);
+            final opacity = 0.35 + 0.55 * (math.sin(v * math.pi * 2) * 0.5 + 0.5);
+            return Padding(
+              padding: const EdgeInsets.only(right: 5),
+              child: Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: VyomaColors.accentBright.withValues(alpha: opacity),
+                  boxShadow: [
+                    BoxShadow(
+                      color: VyomaColors.accentBright.withValues(alpha: opacity * 0.35),
+                      blurRadius: 6,
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        );
+      },
+    );
+  }
+}
+
 /// Animated Send Button with hover and press effects
 class _AnimatedSendButton extends StatefulWidget {
   final bool isProcessing;
@@ -1011,50 +1330,6 @@ class _AnimatedSendButtonState extends State<_AnimatedSendButton> {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// Live streaming text bubble with blinking cursor
-class _StreamingText extends StatefulWidget {
-  final String text;
-  const _StreamingText({required this.text});
-
-  @override
-  State<_StreamingText> createState() => _StreamingTextState();
-}
-
-class _StreamingTextState extends State<_StreamingText> {
-  bool _cursorVisible = true;
-  Timer? _cursorTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _cursorTimer = Timer.periodic(const Duration(milliseconds: 530), (_) {
-      if (mounted) setState(() => _cursorVisible = !_cursorVisible);
-    });
-  }
-
-  @override
-  void dispose() {
-    _cursorTimer?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Text.rich(
-      TextSpan(
-        children: [
-          TextSpan(text: widget.text),
-          TextSpan(
-            text: _cursorVisible ? '▋' : ' ',
-            style: const TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.w300),
-          ),
-        ],
-      ),
-      style: GoogleFonts.inter(color: Colors.white.withValues(alpha: 0.92), fontSize: 14, height: 1.6),
     );
   }
 }
