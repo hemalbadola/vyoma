@@ -458,39 +458,61 @@ class _WeeklyCalendarGridState extends State<WeeklyCalendarGrid> {
   }
 
   Widget _buildError() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.wifi_off, color: Colors.redAccent, size: 34),
-            const SizedBox(height: 12),
-            Text(
-              'Calendar sync unavailable',
-              style: GoogleFonts.inter(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compactMode = constraints.maxHeight < 160;
+
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.wifi_off,
+                    color: Colors.redAccent,
+                    size: compactMode ? 24 : 34,
+                  ),
+                  SizedBox(height: compactMode ? 6 : 12),
+                  Text(
+                    'Calendar sync unavailable',
+                    style: GoogleFonts.inter(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: compactMode ? 13 : 14,
+                    ),
+                  ),
+                  SizedBox(height: compactMode ? 4 : 6),
+                  Text(
+                    _error!,
+                    maxLines: compactMode ? 2 : null,
+                    overflow: compactMode
+                        ? TextOverflow.ellipsis
+                        : TextOverflow.visible,
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                      color: Colors.white54,
+                      fontSize: 12,
+                    ),
+                  ),
+                  if (!compactMode) ...[
+                    const SizedBox(height: 10),
+                    OutlinedButton(
+                      onPressed: () {
+                        _cooldownRetryTimer?.cancel();
+                        context.read<CalendarService>().clearInitCooldown();
+                        _refreshWeek().then((_) => _startPollTimer());
+                      },
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ],
               ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              _error!,
-              textAlign: TextAlign.center,
-              style: GoogleFonts.inter(color: Colors.white54, fontSize: 12),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton(
-              onPressed: () {
-                _cooldownRetryTimer?.cancel();
-                context.read<CalendarService>().clearInitCooldown();
-                _refreshWeek().then((_) => _startPollTimer());
-              },
-              child: const Text('Retry'),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 

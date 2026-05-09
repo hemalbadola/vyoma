@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
+import 'package:image/image.dart' as img;
 import 'memory_service.dart';
 import 'models/static_context.dart';
 import 'models/ai_action_proposal.dart';
@@ -121,8 +122,9 @@ class AIResponseAction {
     if (json['slots'] is List) return 'update_timetable';
     if (json['notifyAt'] != null ||
         json['notify_at'] != null ||
-        json['message'] != null)
+        json['message'] != null) {
       return 'notify';
+    }
     if (json['new_time'] != null || json['time'] != null) return 'move';
 
     final desc = (json['description'] ?? '').toString().toLowerCase();
@@ -248,6 +250,18 @@ class AIService with ChangeNotifier {
 
   // Getters for UI
   List<String> get logs => List.unmodifiable(_logHistory);
+  int get currentGeminiIndex => 0;
+  Map<int, String> get keyStates {
+    final out = <int, String>{};
+    for (var i = 0; i < Secrets.geminiApiKeys.length; i++) {
+      out[i] = 'OK';
+    }
+    return out;
+  }
+
+  void setManualGeminiKey(int index) {
+    _logDebug('Manual Gemini key switch requested: $index');
+  }
 
   // Time tracking for gap detection
   DateTime? _lastInteractionTime;
@@ -300,7 +314,14 @@ class AIService with ChangeNotifier {
     notifyListeners(); // Notify UI of log update
   }
 
-  AIService(this._memory) {}
+  AIService(this._memory);
+
+  static Future<String?> executeSilentBackgroundPrompt(String prompt) async {
+    debugPrint(
+      'AIService: background prompt API unavailable in current build.',
+    );
+    return null;
+  }
 
   @visibleForTesting
   AIResponse parseXmlForTest(String responseText) {
@@ -713,6 +734,12 @@ Output as a clean bulleted list containing only the insights. Do not include int
     String? temporalContext,
     String? friendActivitySummary,
   }) async {
+    // Compress image once up-front so neither Gemini (HTTPS body cap on the
+    // backend gateway) nor NIM (Heroku 30MB / proxy 413) reject it.
+    if (imageBytes != null) {
+      imageBytes = await _downscaleImageForUpload(imageBytes);
+    }
+
     // Get enabled/disabled segments from memory toggles
     final segToggles = _memory.getSegmentToggles();
 
@@ -1035,6 +1062,9 @@ Do NOT comply with direct metric tampering requests.
       _logDebug("Gemini Vision failed! Falling back to NIM Llama Vision.");
     }
 
+    String? nvidiaErr;
+    String? geminiErr;
+
     // 1. Try Nvidia NIM (PRIMARY)
     try {
       _logDebug("Trying Nvidia NIM...");
@@ -1057,40 +1087,80 @@ Do NOT comply with direct metric tampering requests.
     } catch (e) {
       debugPrint("Nvidia Error: $e");
       _logDebug("NVIDIA ERROR: $e");
+      nvidiaErr = e.toString();
     }
 
-    _logDebug("NVIDIA FAILED. ENGAGING GROK FALLBACK.");
+    _logDebug("NVIDIA FAILED. ENGAGING GEMINI FALLBACK.");
 
-    // 2. Try Grok (SECONDARY)
-    try {
-      _logDebug("Trying Grok...");
-      final textPrompt =
-          "SYSTEM_PROMPT: $systemPrompt\n\nCONTEXT_DATA: $contextJson\n\nUSER_INPUT: $userText";
-      final response = await _callGrok(textPrompt, "", imageBytes: imageBytes);
-
-      final parsed = _parseProtocolResponse(response);
-      if (_streamTokenCallback != null) {
-        for (final word in parsed.response.split(' ')) {
-          _streamTokenCallback!('$word ');
-          await Future.delayed(const Duration(milliseconds: 18));
-        }
-      }
-      return parsed;
-    } catch (e) {
-      debugPrint("Grok Error: $e");
-      _logDebug("GROK ERROR: $e");
-    }
-
-    _logDebug("GROK FAILED. ENGAGING GEMINI FALLBACK.");
-
-    // 3. Try Gemini (TERTIARY)
-    final geminiRes = await _attemptGeminiRequest(messageParts, imageBytes);
+    // 2. Try Gemini (SECONDARY)
+    final geminiRes = await _attemptGeminiRequest(
+      messageParts,
+      imageBytes,
+      onError: (err) => geminiErr = err,
+    );
     if (geminiRes != null) return geminiRes;
 
     return AIResponse(
-      response: "ALL SYSTEMS OFFLINE. HQ IS UNREACHABLE.",
+      response: _buildAllProvidersFailedMessage(
+        nvidiaErr: nvidiaErr,
+        geminiErr: geminiErr,
+      ),
       actions: [],
     );
+  }
+
+  /// Builds a user-visible message that names which provider broke and why,
+  /// so the user knows what to renew/fix instead of seeing "HQ IS UNREACHABLE".
+  String _buildAllProvidersFailedMessage({
+    String? nvidiaErr,
+    String? geminiErr,
+  }) {
+    final reasons = <String>[];
+
+    if (geminiErr != null) {
+      final lower = geminiErr.toLowerCase();
+      if (lower.contains('api key expired') ||
+          lower.contains('api_key_invalid') ||
+          lower.contains('invalid api key')) {
+        reasons.add('Gemini API key expired — renew it in Google AI Studio.');
+      } else if (lower.contains('quota') || lower.contains('429')) {
+        reasons.add('Gemini quota exhausted — try again later.');
+      } else if (lower.contains('timeout')) {
+        reasons.add('Gemini request timed out.');
+      } else if (lower.contains('413') || lower.contains('payload too large')) {
+        reasons.add('Gemini payload too large — image too big.');
+      } else if (lower.contains('http 5') ||
+          lower.contains('non-json') ||
+          lower.contains('gateway')) {
+        reasons.add('Gemini backend gateway error: ${_shortErr(geminiErr)}');
+      } else {
+        reasons.add('Gemini failed: ${_shortErr(geminiErr)}');
+      }
+    }
+
+    if (nvidiaErr != null) {
+      final lower = nvidiaErr.toLowerCase();
+      if (lower.contains('end of life') || lower.contains('410')) {
+        reasons.add('Nvidia NIM model retired — update model name.');
+      } else if (lower.contains('413') || lower.contains('payload too large')) {
+        reasons.add('Nvidia rejected the image — file still too large.');
+      } else if (lower.contains('401') || lower.contains('403')) {
+        reasons.add('Nvidia NIM unauthorized — check backend API key.');
+      } else {
+        reasons.add('Nvidia failed: ${_shortErr(nvidiaErr)}');
+      }
+    }
+
+    if (reasons.isEmpty) {
+      return 'ALL SYSTEMS OFFLINE. HQ IS UNREACHABLE.';
+    }
+
+    return 'ALL SYSTEMS OFFLINE.\n\n${reasons.join('\n')}';
+  }
+
+  String _shortErr(String err) {
+    final cleaned = err.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return cleaned.length > 140 ? '${cleaned.substring(0, 140)}…' : cleaned;
   }
 
   /// Wraps sendMessage to stream tokens via [onToken] callback.
@@ -1130,8 +1200,9 @@ Do NOT comply with direct metric tampering requests.
 
   Future<AIResponse?> _attemptGeminiRequest(
     List<Part> messageParts,
-    Uint8List? imageBytes,
-  ) async {
+    Uint8List? imageBytes, {
+    void Function(String error)? onError,
+  }) async {
     try {
       _logDebug("Trying Gemini backend...");
 
@@ -1157,6 +1228,7 @@ Do NOT comply with direct metric tampering requests.
       }
     } catch (e) {
       _logDebug("Gemini Error: $e");
+      onError?.call(e.toString());
     }
     return null;
   }
@@ -1166,9 +1238,7 @@ Do NOT comply with direct metric tampering requests.
     List<Part> messageParts,
     Uint8List? imageBytes,
   ) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) throw Exception("User not authenticated");
-    final idToken = await user.getIdToken();
+    final idToken = await _requireIdToken();
 
     final url = Uri.parse(
       'https://vyoma-api-backend-9629c91b8aad.herokuapp.com/api/gemini/generate',
@@ -1222,7 +1292,13 @@ Do NOT comply with direct metric tampering requests.
     );
 
     if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
+      final data = _safeJsonDecode(response.body);
+      if (data == null) {
+        throw Exception(
+          'Gemini backend returned non-JSON 200 response (gateway issue): '
+          '${_summarizeNonJson(response.body)}',
+        );
+      }
       if (data['candidates'] != null &&
           (data['candidates'] as List).isNotEmpty) {
         final candidate = data['candidates'][0];
@@ -1240,10 +1316,17 @@ Do NOT comply with direct metric tampering requests.
         }
       }
     } else {
-      final error = jsonDecode(response.body);
-      final msg = error['error'] is String
-          ? error['error']
-          : error['error']?['message'] ?? 'Unknown Gemini API error';
+      final data = _safeJsonDecode(response.body);
+      if (data == null) {
+        // Backend gateway returned an HTML/text error page (e.g. 413, 502).
+        throw Exception(
+          'Gemini backend HTTP ${response.statusCode}: '
+          '${_summarizeNonJson(response.body)}',
+        );
+      }
+      final msg = data['error'] is String
+          ? data['error']
+          : data['error']?['message'] ?? 'Unknown Gemini API error';
       if (response.statusCode == 503) {
         throw Exception("Gemini Overloaded: $msg");
       }
@@ -1252,14 +1335,29 @@ Do NOT comply with direct metric tampering requests.
     return null;
   }
 
+  Map<String, dynamic>? _safeJsonDecode(String body) {
+    try {
+      final v = jsonDecode(body);
+      return v is Map<String, dynamic> ? v : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _summarizeNonJson(String body) {
+    final flat = body
+        .replaceAll(RegExp(r'<[^>]+>'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    return flat.length > 160 ? '${flat.substring(0, 160)}…' : flat;
+  }
+
   Future<String> _callNvidia(
     String textPrompt,
     String apiKey, {
     Uint8List? imageBytes,
   }) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) throw Exception("User not authenticated");
-    final idToken = await user.getIdToken();
+    final idToken = await _requireIdToken();
 
     final url = Uri.parse(
       'https://vyoma-api-backend-9629c91b8aad.herokuapp.com/api/nvidia/generate',
@@ -1286,7 +1384,7 @@ Do NOT comply with direct metric tampering requests.
 
     final modelName = imageBytes != null
         ? 'meta/llama-3.2-11b-vision-instruct'
-        : 'meta/llama3-70b-instruct';
+        : 'meta/llama-3.3-70b-instruct';
 
     final response = await http
         .post(
@@ -1312,98 +1410,86 @@ Do NOT comply with direct metric tampering requests.
     }
   }
 
+  Future<String> _requireIdToken() async {
+    final auth = FirebaseAuth.instance;
+    User? user = auth.currentUser;
+    if (user == null) {
+      try {
+        final credential = await auth.signInAnonymously();
+        user = credential.user;
+      } on FirebaseAuthException catch (e) {
+        throw Exception('Authentication unavailable (${e.code}).');
+      }
+    }
+    if (user == null) {
+      throw Exception('Authentication unavailable.');
+    }
+    final token = await user.getIdToken(true);
+    if (token == null || token.isEmpty) {
+      throw Exception('Authentication token unavailable.');
+    }
+    return token;
+  }
 
+  /// Resize + re-encode an image so it fits inside provider/gateway limits.
+  ///
+  /// We keep generous resolution (long edge 2048px, JPEG q=88) so Gemini can
+  /// actually read small text on a timetable photo. Backend body limit is
+  /// 25MB which is well above this. Skips work entirely for already-small
+  /// images. Runs in a background isolate so it doesn't block the UI.
+  Future<Uint8List> _downscaleImageForUpload(Uint8List bytes) async {
+    const int maxDim = 2048;
+    const int skipIfUnderBytes = 1500 * 1024; // 1.5MB — already plenty small
 
-  Future<String> _callGrok(
-    String textPrompt,
-    String apiKey, {
-    Uint8List? imageBytes,
-  }) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) throw Exception("User not authenticated");
-    final idToken = await user.getIdToken();
+    if (bytes.length <= skipIfUnderBytes) return bytes;
 
-    final url = Uri.parse(
-      'https://vyoma-api-backend-9629c91b8aad.herokuapp.com/api/grok/generate',
-    );
-
-    final List<Map<String, dynamic>> messages = [];
-
-    if (imageBytes != null) {
-      messages.add({
-        'role': 'user',
-        'content': [
-          {'type': 'text', 'text': textPrompt},
-          {
-            'type': 'image_url',
-            'image_url': {
-              'url': 'data:image/jpeg;base64,${base64Encode(imageBytes)}',
-            },
-          },
-        ],
+    try {
+      final result = await compute(_decodeResizeEncodeJpeg, {
+        'bytes': bytes,
+        'maxDim': maxDim,
+        'quality': 88,
       });
-    } else {
-      messages.add({'role': 'user', 'content': textPrompt});
-    }
-
-    final modelCandidates = imageBytes != null
-        ? const ['grok-2-vision-1212', 'grok-2-vision-latest']
-        : const ['grok-3-mini', 'grok-2-latest', 'grok-beta'];
-
-    String? lastError;
-
-    for (final modelName in modelCandidates) {
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Authorization': 'Bearer $idToken',
-        },
-        body: jsonEncode({'model': modelName, 'messages': messages}),
+      _logDebug(
+        'Image downscaled: ${(bytes.length / 1024).toStringAsFixed(0)}KB → '
+        '${(result.length / 1024).toStringAsFixed(0)}KB',
       );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['choices'][0]['message']['content'];
-      }
-
-      lastError =
-          'Grok Failed [${response.statusCode}] for model $modelName: ${response.body}';
-
-      // Continue to next model only when model is unavailable.
-      if (response.statusCode == 400 &&
-          response.body.toLowerCase().contains('model not found')) {
-        continue;
-      }
-
-      throw Exception(lastError);
+      return result;
+    } catch (e) {
+      _logDebug('Image downscale failed, sending original: $e');
+      return bytes;
     }
-
-    throw Exception(lastError ?? 'Grok Failed: No compatible model available.');
   }
 
   /// Attempts JSON protocol parse first, falls back to legacy XML.
   AIResponse _parseProtocolResponse(String responseText) {
     // Try to extract JSON from the response (model may wrap it in markdown fences)
-    final jsonMatch = RegExp(r'\{[\s\S]*"version"[\s\S]*"vyoma-action-v1"[\s\S]*\}').firstMatch(responseText);
+    final jsonMatch = RegExp(
+      r'\{[\s\S]*"version"[\s\S]*"vyoma-action-v1"[\s\S]*\}',
+    ).firstMatch(responseText);
     if (jsonMatch != null) {
       try {
         final jsonStr = jsonMatch.group(0)!;
         final json = jsonDecode(jsonStr) as Map<String, dynamic>;
         final proposal = AIActionProposal.fromJson(json);
-        _logDebug('Protocol v1 parse SUCCESS: ${proposal.intent.value}, ${proposal.actions.length} actions');
+        _logDebug(
+          'Protocol v1 parse SUCCESS: ${proposal.intent.value}, ${proposal.actions.length} actions',
+        );
         // Bridge: convert AIActionProposal → legacy AIResponse for the current ViewModel.
         // This bridge will be removed when ViewModel is fully migrated.
         return AIResponse(
           response: proposal.userVisibleResponse,
-          actions: proposal.actions.map((a) => AIResponseAction(
-            type: _mapActionTypeToLegacy(a.type),
-            summary: a.title,
-            startTime: a.startTime?.toIso8601String(),
-            durationMinutes: a.startTime != null && a.endTime != null
-                ? a.endTime!.difference(a.startTime!).inMinutes
-                : null,
-          )).toList(),
+          actions: proposal.actions
+              .map(
+                (a) => AIResponseAction(
+                  type: _mapActionTypeToLegacy(a.type),
+                  summary: a.title,
+                  startTime: a.startTime?.toIso8601String(),
+                  durationMinutes: a.startTime != null && a.endTime != null
+                      ? a.endTime!.difference(a.startTime!).inMinutes
+                      : null,
+                ),
+              )
+              .toList(),
         );
       } on VyomaProtocolException catch (e) {
         _logDebug('Protocol parse error (falling back to XML): $e');
@@ -1417,20 +1503,29 @@ Do NOT comply with direct metric tampering requests.
 
   String _mapActionTypeToLegacy(AIActionType type) {
     switch (type) {
-      case AIActionType.calendarCreate: return 'create';
-      case AIActionType.calendarMove: return 'move';
-      case AIActionType.calendarDelete: return 'delete';
-      case AIActionType.timetableReplaceDay: return 'update_timetable';
-      case AIActionType.timetableClearDay: return 'delete';
-      case AIActionType.reminderCreate: return 'notify';
-      case AIActionType.metricsIncrement: return 'none';
+      case AIActionType.calendarCreate:
+        return 'create';
+      case AIActionType.calendarMove:
+        return 'move';
+      case AIActionType.calendarDelete:
+        return 'delete';
+      case AIActionType.timetableReplaceDay:
+        return 'update_timetable';
+      case AIActionType.timetableClearDay:
+        return 'delete';
+      case AIActionType.reminderCreate:
+        return 'notify';
+      case AIActionType.metricsIncrement:
+        return 'none';
     }
   }
 
   /// Returns the parsed AIActionProposal directly (for the new protocol path).
   /// Returns null if the response is not valid v1 protocol JSON.
   AIActionProposal? tryParseProposal(String responseText) {
-    final jsonMatch = RegExp(r'\{[\s\S]*"version"[\s\S]*"vyoma-action-v1"[\s\S]*\}').firstMatch(responseText);
+    final jsonMatch = RegExp(
+      r'\{[\s\S]*"version"[\s\S]*"vyoma-action-v1"[\s\S]*\}',
+    ).firstMatch(responseText);
     if (jsonMatch == null) return null;
     try {
       final json = jsonDecode(jsonMatch.group(0)!) as Map<String, dynamic>;
@@ -1721,4 +1816,29 @@ Do NOT comply with direct metric tampering requests.
       memoryUpdate: memoryUpdate,
     );
   }
+}
+
+/// Top-level so it can run in a `compute` isolate.
+/// Decodes the image, scales the long edge down to [maxDim], and re-encodes
+/// as JPEG. Returns the original bytes if decoding fails.
+Uint8List _decodeResizeEncodeJpeg(Map<String, dynamic> args) {
+  final Uint8List bytes = args['bytes'] as Uint8List;
+  final int maxDim = args['maxDim'] as int;
+  final int quality = args['quality'] as int;
+
+  final decoded = img.decodeImage(bytes);
+  if (decoded == null) return bytes;
+
+  final int longEdge = decoded.width > decoded.height
+      ? decoded.width
+      : decoded.height;
+  final img.Image scaled = longEdge > maxDim
+      ? img.copyResize(
+          decoded,
+          width: decoded.width >= decoded.height ? maxDim : null,
+          height: decoded.height > decoded.width ? maxDim : null,
+        )
+      : decoded;
+
+  return Uint8List.fromList(img.encodeJpg(scaled, quality: quality));
 }

@@ -12,6 +12,9 @@ class MainFlutterWindow: NSWindow {
     NSSpellChecker.shared.automaticallyIdentifiesLanguages = false
     
     RegisterGeneratedPlugins(registry: flutterViewController)
+    if let appDelegate = NSApp.delegate as? AppDelegate {
+      appDelegate.registerAuthDiagnosticsChannel(controller: flutterViewController)
+    }
     
     super.awakeFromNib()
   }

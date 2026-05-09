@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:vyoma/agent_debug_log.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart'; // Add font import
+import 'package:firebase_auth/firebase_auth.dart';
 import 'ui/vyoma_theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'core/auth_manager.dart';
@@ -22,6 +24,8 @@ import 'core/telemetry_service.dart';
 import 'ui/war_room_viewmodel.dart';
 import 'ui/home_screen.dart'; 
 import 'ui/onboarding_screen.dart';
+import 'ui/screens/login_screen.dart';
+import 'ui/screens/profile_setup_screen.dart';
 import 'tutorial/tutorial_controller.dart';
 import 'tutorial/tutorial_overlay.dart';
 
@@ -225,7 +229,7 @@ class VyomaApp extends StatelessWidget {
             builder: (context, child) {
               return Stack(
                 children: [
-                  if (child != null) child,
+                  ?child,
                   Consumer<TutorialController>(
                     builder: (context, tutorial, _) {
                       if (!tutorial.isActive) return const SizedBox.shrink();
@@ -299,6 +303,23 @@ class _LaunchGate extends StatefulWidget {
 
 class _LaunchGateState extends State<_LaunchGate> {
   bool? _onboardingComplete;
+  Future<void> _debugLog({
+    required String hypothesisId,
+    required String location,
+    required String message,
+    Map<String, dynamic>? data,
+  }) async {
+    // #region agent log
+    await agentDebugNdjsonLog(
+      runId: 'pre-fix-1',
+      hypothesisId: hypothesisId,
+      location: location,
+      message: message,
+      data: data,
+    );
+    // #endregion
+  }
+
   late AppLinks _appLinks;
   StreamSubscription<Uri>? _linkSubscription;
 
@@ -346,6 +367,12 @@ class _LaunchGateState extends State<_LaunchGate> {
 
   Future<void> _loadOnboardingFlag() async {
     final prefs = await SharedPreferences.getInstance();
+    await _debugLog(
+      hypothesisId: 'H4',
+      location: 'main.dart:_loadOnboardingFlag',
+      message: 'Loaded onboarding flag',
+      data: {'onboarding_complete': prefs.getBool('onboarding_complete') ?? false},
+    );
     setState(() {
       _onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
     });
@@ -353,6 +380,12 @@ class _LaunchGateState extends State<_LaunchGate> {
 
   @override
   Widget build(BuildContext context) {
+    _debugLog(
+      hypothesisId: 'H4',
+      location: 'main.dart:_LaunchGateState.build',
+      message: 'Launch gate build',
+      data: {'onboarding_complete_state': _onboardingComplete},
+    );
     if (_onboardingComplete == null) {
       return const Scaffold(backgroundColor: Colors.black);
     }
@@ -396,7 +429,42 @@ class _LaunchGateState extends State<_LaunchGate> {
           );
         }
 
-        return _onboardingComplete! ? const HomeScreen() : const OnboardingScreen();
+        return StreamBuilder<User?>(
+          stream: FirebaseAuth.instance.authStateChanges(),
+          builder: (context, authSnapshot) {
+            final userSvc = context.watch<UserService>();
+            final user = authSnapshot.data;
+
+            _debugLog(
+              hypothesisId: 'H8',
+              location: 'main.dart:_LaunchGateState.authGate',
+              message: 'Auth gate evaluated',
+              data: {
+                'hasUser': user != null,
+                'profileLoaded': userSvc.isProfileLoaded,
+                'hasProfile': userSvc.hasProfile,
+                'onboardingComplete': _onboardingComplete,
+              },
+            );
+
+            if (authSnapshot.connectionState == ConnectionState.waiting) {
+              return const Scaffold(backgroundColor: Colors.black);
+            }
+            if (user == null) {
+              return const LoginScreen();
+            }
+            if (!userSvc.isProfileLoaded) {
+              return const Scaffold(
+                backgroundColor: Colors.black,
+                body: Center(child: CircularProgressIndicator(color: Color(0xFF06B6D4))),
+              );
+            }
+            if (!userSvc.hasProfile) {
+              return const ProfileSetupScreen();
+            }
+            return _onboardingComplete! ? const HomeScreen() : const OnboardingScreen();
+          },
+        );
       },
     );
   }

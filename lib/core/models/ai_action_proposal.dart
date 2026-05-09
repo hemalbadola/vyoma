@@ -328,10 +328,10 @@ final class ProtocolVersionException extends VyomaProtocolException {
 
 /// A required field is absent or has an invalid type.
 final class MalformedProposalException extends VyomaProtocolException {
-  const MalformedProposalException(String message) : super(message);
+  const MalformedProposalException(super.message);
 }
 
 /// A policy rule rejected the proposal before execution.
 final class PolicyViolationException extends VyomaProtocolException {
-  const PolicyViolationException(String message) : super(message);
+  const PolicyViolationException(super.message);
 }

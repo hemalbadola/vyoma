@@ -2,19 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>com.apple.security.app-sandbox</key>
-	<true/>
+	<!-- Debug-only: no App Sandbox so Google Sign-In / GIDSignIn can use the login keychain like a normal macOS app. Release still uses sandbox + Release.entitlements. -->
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
-	<key>com.apple.security.network.client</key>
-	<true/>
-	<key>com.apple.security.network.server</key>
-	<true/>
+	<!-- Required by google_sign_in_ios macOS — without com.google.GIDSignIn the SDK throws keychain errors. -->
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)com.google.GIDSignIn</string>
-		<string>$(AppIdentifierPrefix)com.google.firebase.auth.keychain</string>
-		<string>$(AppIdentifierPrefix)com.vyoma.app</string>
 	</array>
 </dict>
 </plist>

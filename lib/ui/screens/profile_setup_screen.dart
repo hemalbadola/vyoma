@@ -36,13 +36,14 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       _error = null;
     });
 
+    final userSvc = context.read<UserService>();
+
     try {
       final auth = FirebaseAuth.instance;
       if (auth.currentUser == null) {
         await auth.signInAnonymously();
       }
 
-      final userSvc = context.read<UserService>();
       final isAvailable = await userSvc.isUsernameAvailable(username);
       if (!isAvailable) {
         setState(() {
@@ -58,6 +59,15 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       );
       
       // Wait for stream to update UI automatically
+    } on FirebaseAuthException catch (e) {
+      final raw = '${e.code} ${e.message ?? ''}'.toLowerCase();
+      final keychainIssue = raw.contains('keychain');
+      setState(() {
+        _error = keychainIssue
+            ? 'Secure keychain access blocked on this device. Complete onboarding and continue in local mode, then reconnect Firebase later from Settings.'
+            : e.toString();
+        _isLoading = false;
+      });
     } catch (e) {
       setState(() {
         _error = e.toString();
