@@ -309,9 +309,12 @@ class _VaultJournalViewState extends State<VaultJournalView> {
                       420.0,
                     );
 
-                    return SingleChildScrollView(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Column(
+                    return Localizations.override(
+                      context: context,
+                      locale: const Locale.fromSubtags(languageCode: 'zxx'),
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           if (!widget.embedded &&
@@ -638,7 +641,8 @@ class _VaultJournalViewState extends State<VaultJournalView> {
                                           TextInputType.visiblePassword,
                                       obscureText: false,
                                       spellCheckConfiguration:
-                                          SpellCheckConfiguration.disabled(),
+                                          const SpellCheckConfiguration
+                                              .disabled(),
                                       style: VyType.body.copyWith(height: 1.7),
                                       decoration: InputDecoration(
                                         border: InputBorder.none,
@@ -732,6 +736,15 @@ class _VaultJournalViewState extends State<VaultJournalView> {
                                               initialValue: entry.value,
                                               onChanged: (v) =>
                                                   _insights[idx] = v,
+                                              autocorrect: false,
+                                              enableSuggestions: false,
+                                              smartDashesType:
+                                                  SmartDashesType.disabled,
+                                              smartQuotesType:
+                                                  SmartQuotesType.disabled,
+                                              spellCheckConfiguration:
+                                                  const SpellCheckConfiguration
+                                                      .disabled(),
                                               style: VyType.body.copyWith(
                                                 fontSize: 13,
                                               ),
@@ -929,6 +942,7 @@ class _VaultJournalViewState extends State<VaultJournalView> {
                           ),
                         ],
                       ),
+                    ),
                     );
                   },
                 ),
