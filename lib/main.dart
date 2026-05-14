@@ -1,5 +1,8 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:vyoma/agent_debug_log.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -41,12 +44,14 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'firebase_options.dart';
 import 'services/session_manager.dart';
+import 'core/app_trace.dart';
 import 'core/theme/vyoma_theme.dart';
 import 'core/theme/vyoma_tokens.dart';
 import 'core/widgets/vy_loader.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 
-const bool _kEnableTutorialOverlay = false;
+/// Spotlight tutorial (`tutorial/tutorial_overlay.dart`). Spotlights Vyoma UI after onboarding.
+const bool _kEnableTutorialOverlay = true;
 
 void main() async {
   final WidgetsBinding widgetsBinding =
@@ -56,6 +61,9 @@ void main() async {
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
+    );
+    await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(
+      kReleaseMode,
     );
   } catch (e) {
     debugPrint("Firebase init failed: $e");
@@ -102,12 +110,23 @@ void main() async {
       );
       return;
     }
+    try {
+      FirebaseCrashlytics.instance.recordFlutterError(details);
+    } catch (_) {}
     if (originalOnError != null) {
       originalOnError(details);
     } else {
       FlutterError.presentError(details);
     }
   };
+
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    try {
+      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    } catch (_) {}
+    return true;
+  };
+
   runApp(const VyomaApp());
 }
 
@@ -121,9 +140,9 @@ class VyomaApp extends StatelessWidget {
         // 1. Auth (Singleton Factory)
         Provider<AuthManager>(
           create: (_) {
-            debugPrint('PROVIDER_DEBUG: Creating AuthManager...');
+            traceDebug('PROVIDER_DEBUG: Creating AuthManager...');
             final a = AuthManager();
-            debugPrint('PROVIDER_DEBUG: AuthManager CREATED OK');
+            traceDebug('PROVIDER_DEBUG: AuthManager CREATED OK');
             return a;
           },
         ),
@@ -131,112 +150,113 @@ class VyomaApp extends StatelessWidget {
         // 2. Services (Dependent on Auth or Standalone)
         ChangeNotifierProvider<MemoryService>(
           create: (_) {
-            debugPrint('PROVIDER_DEBUG: Creating MemoryService...');
+            traceDebug('PROVIDER_DEBUG: Creating MemoryService...');
             final m = MemoryService()..init();
-            debugPrint('PROVIDER_DEBUG: MemoryService CREATED OK');
+            traceDebug('PROVIDER_DEBUG: MemoryService CREATED OK');
             return m;
           },
         ),
         ChangeNotifierProvider<UserService>(
           create: (_) {
-            debugPrint('PROVIDER_DEBUG: Creating UserService...');
+            traceDebug('PROVIDER_DEBUG: Creating UserService...');
             return UserService();
           },
         ),
         ChangeNotifierProvider<FriendService>(
           create: (_) {
-            debugPrint('PROVIDER_DEBUG: Creating FriendService...');
+            traceDebug('PROVIDER_DEBUG: Creating FriendService...');
             return FriendService();
           },
         ),
         ChangeNotifierProvider<CoFocusService>(
           create: (_) {
-            debugPrint('PROVIDER_DEBUG: Creating CoFocusService...');
+            traceDebug('PROVIDER_DEBUG: Creating CoFocusService...');
             return CoFocusService();
           },
         ),
         Provider<WitnessService>(
           create: (_) {
-            debugPrint('PROVIDER_DEBUG: Creating WitnessService...');
+            traceDebug('PROVIDER_DEBUG: Creating WitnessService...');
             return WitnessService();
           },
         ),
         ChangeNotifierProvider<IdentityAnchorService>(
           create: (_) {
-            debugPrint('PROVIDER_DEBUG: Creating IdentityAnchorService...');
+            traceDebug('PROVIDER_DEBUG: Creating IdentityAnchorService...');
             return IdentityAnchorService()..init();
           },
         ),
         ChangeNotifierProvider<AgitationDetector>(
           create: (_) {
-            debugPrint('PROVIDER_DEBUG: Creating AgitationDetector...');
+            traceDebug('PROVIDER_DEBUG: Creating AgitationDetector...');
             return AgitationDetector();
           },
         ),
         Provider<MirrorSessionService>(
           create: (_) {
-            debugPrint('PROVIDER_DEBUG: Creating MirrorSessionService...');
+            traceDebug('PROVIDER_DEBUG: Creating MirrorSessionService...');
             return MirrorSessionService();
           },
         ),
         ChangeNotifierProvider<DharmaMapService>(
           create: (_) {
-            debugPrint('PROVIDER_DEBUG: Creating DharmaMapService...');
+            traceDebug('PROVIDER_DEBUG: Creating DharmaMapService...');
             return DharmaMapService()..init();
           },
         ),
         ChangeNotifierProvider<AntiGoalsService>(
           create: (_) {
-            debugPrint('PROVIDER_DEBUG: Creating AntiGoalsService...');
+            traceDebug('PROVIDER_DEBUG: Creating AntiGoalsService...');
             return AntiGoalsService()..init();
           },
         ),
         Provider<CouncilService>(
           create: (_) {
-            debugPrint('PROVIDER_DEBUG: Creating CouncilService...');
+            traceDebug('PROVIDER_DEBUG: Creating CouncilService...');
             return CouncilService();
           },
         ),
         Provider<AccountabilityService>(
           create: (_) {
-            debugPrint('PROVIDER_DEBUG: Creating AccountabilityService...');
+            traceDebug('PROVIDER_DEBUG: Creating AccountabilityService...');
             return AccountabilityService();
           },
         ),
         ChangeNotifierProvider<AIService>(
           create: (context) {
-            debugPrint('PROVIDER_DEBUG: Creating AIService...');
+            traceDebug('PROVIDER_DEBUG: Creating AIService...');
             final ai = AIService(
               Provider.of<MemoryService>(context, listen: false),
             );
-            debugPrint('PROVIDER_DEBUG: AIService CREATED OK');
+            traceDebug('PROVIDER_DEBUG: AIService CREATED OK');
             return ai;
           },
         ),
         ProxyProvider<AuthManager, CalendarService>(
           update: (_, auth, previous) {
             if (previous != null) return previous;
-            debugPrint('PROVIDER_DEBUG: Creating CalendarService...');
+            traceDebug('PROVIDER_DEBUG: Creating CalendarService...');
             final c = CalendarService(auth);
-            debugPrint('PROVIDER_DEBUG: CalendarService CREATED OK');
+            traceDebug('PROVIDER_DEBUG: CalendarService CREATED OK');
             return c;
           },
         ),
         Provider<NotificationService>(
           create: (_) {
-            debugPrint('PROVIDER_DEBUG: Creating NotificationService...');
+            traceDebug('PROVIDER_DEBUG: Creating NotificationService...');
             final n = NotificationService();
-            debugPrint('PROVIDER_DEBUG: NotificationService CREATED OK');
+            traceDebug('PROVIDER_DEBUG: NotificationService CREATED OK');
             return n;
           },
         ),
-        Provider<PingService>(
+        InheritedProvider<PingService>(
           create: (context) {
-            debugPrint('PROVIDER_DEBUG: Creating PingService...');
+            traceDebug('PROVIDER_DEBUG: Creating PingService...');
             return PingService(
               Provider.of<NotificationService>(context, listen: false),
             );
           },
+          dispose: (_, ping) => ping.dispose(),
         ),
         ProxyProvider<UserService, TelemetryService>(
           lazy: false,
@@ -248,11 +268,11 @@ class VyomaApp extends StatelessWidget {
         ),
         ChangeNotifierProxyProvider<CalendarService, TimetableService>(
           create: (context) {
-            debugPrint('PROVIDER_DEBUG: Creating TimetableService...');
+            traceDebug('PROVIDER_DEBUG: Creating TimetableService...');
             final t = TimetableService(
               Provider.of<CalendarService>(context, listen: false),
             );
-            debugPrint('PROVIDER_DEBUG: TimetableService CREATED OK');
+            traceDebug('PROVIDER_DEBUG: TimetableService CREATED OK');
             return t;
           },
           update: (_, calendar, previous) =>
@@ -260,7 +280,7 @@ class VyomaApp extends StatelessWidget {
         ),
         ChangeNotifierProvider<TaskService>(
           create: (context) {
-            debugPrint('PROVIDER_DEBUG: Creating TaskService...');
+            traceDebug('PROVIDER_DEBUG: Creating TaskService...');
             final t = TaskService(
               accountability: Provider.of<AccountabilityService>(
                 context,
@@ -272,7 +292,7 @@ class VyomaApp extends StatelessWidget {
               ),
               userService: Provider.of<UserService>(context, listen: false),
             );
-            debugPrint('PROVIDER_DEBUG: TaskService CREATED OK');
+            traceDebug('PROVIDER_DEBUG: TaskService CREATED OK');
             return t;
           },
         ),
@@ -300,7 +320,7 @@ class VyomaApp extends StatelessWidget {
         // 3. ViewModels (Dependent on Services)
         ChangeNotifierProvider<TutorialController>(
           create: (_) {
-            debugPrint('PROVIDER_DEBUG: Creating TutorialController...');
+            traceDebug('PROVIDER_DEBUG: Creating TutorialController...');
             return TutorialController();
           },
         ),
@@ -314,7 +334,7 @@ class VyomaApp extends StatelessWidget {
           WarRoomViewModel
         >(
           create: (context) {
-            debugPrint('PROVIDER_DEBUG: Creating WarRoomViewModel...');
+            traceDebug('PROVIDER_DEBUG: Creating WarRoomViewModel...');
             final vm = WarRoomViewModel(
               calendarService: Provider.of<CalendarService>(
                 context,
@@ -339,7 +359,7 @@ class VyomaApp extends StatelessWidget {
                 listen: false,
               ),
             );
-            debugPrint('PROVIDER_DEBUG: WarRoomViewModel CREATED OK');
+            traceDebug('PROVIDER_DEBUG: WarRoomViewModel CREATED OK');
             return vm;
           },
           update:
@@ -383,7 +403,7 @@ class VyomaApp extends StatelessWidget {
             darkTheme: VyomaTheme.dark,
             themeMode: ThemeMode.dark,
             builder: (context, child) {
-              debugPrint(
+              traceDebug(
                 'UI_DEBUG: MaterialApp.builder | child=${child?.runtimeType} | tutorialOverlayEnabled=$_kEnableTutorialOverlay',
               );
               return Stack(

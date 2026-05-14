@@ -5,7 +5,7 @@
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleDisplayName</key>
-		<string>Vyoma Alpha v1.6</string>
+		<string>Vyoma</string>
 		<key>CFBundleExecutable</key>
 		<string>$(EXECUTABLE_NAME)</string>
 		<key>CFBundleIdentifier</key>
@@ -67,7 +67,7 @@
 			</dict>
 		</array>
 		<key>NSPhotoLibraryUsageDescription</key>
-		<string>Vira needs access to your photos to analyze tactical documents and timetables.</string>
+		<string>Vyoma needs access to your photos so you can attach images to tasks and journal entries.</string>
 		<key>UIStatusBarHidden</key>
 		<false/>
 	</dict>

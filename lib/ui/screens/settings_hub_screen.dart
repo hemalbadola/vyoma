@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/auth_manager.dart';
 import '../../core/user_service.dart';
 import '../../core/telemetry_service.dart';
 import '../../core/ai_service.dart';
@@ -92,6 +93,31 @@ class _SettingsHubScreenState extends State<SettingsHubScreen> {
     }
   }
 
+  /// Full sign-out: calendar/Google session via [AuthManager], then Firebase.
+  /// Uses [GlassCard.onTap] for the tile — wrapping GlassCard in InkWell breaks
+  /// taps because GlassCard's inner GestureDetector wins without invoking Firebase.
+  Future<void> _performSignOut() async {
+    final authManager = context.read<AuthManager>();
+    await _debugLog(
+      hypothesisId: 'H3',
+      location: 'settings_hub_screen.dart:_performSignOut',
+      message: 'Sign out started',
+      data: {'hasUser': FirebaseAuth.instance.currentUser != null},
+    );
+    try {
+      await authManager.signOut();
+    } catch (e) {
+      debugPrint('SETTINGS_DEBUG: AuthManager.signOut failed: $e');
+    }
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (e) {
+      debugPrint('SETTINGS_DEBUG: FirebaseAuth.signOut failed: $e');
+    }
+    if (!mounted) return;
+    Navigator.of(context).popUntil((route) => route.isFirst);
+  }
+
   @override
   Widget build(BuildContext context) {
     final userSvc = context.watch<UserService>();
@@ -146,6 +172,13 @@ class _SettingsHubScreenState extends State<SettingsHubScreen> {
                         ElevatedButton(
                           onPressed: _resetOnboarding,
                           child: const Text('Restart Onboarding'),
+                        ),
+                        TextButton(
+                          onPressed: _performSignOut,
+                          child: const Text(
+                            'Sign out',
+                            style: TextStyle(color: Colors.white54),
+                          ),
                         ),
                       ],
                     ),
@@ -265,40 +298,37 @@ class _SettingsHubScreenState extends State<SettingsHubScreen> {
   }) {
     return GlassCard(
       padding: const EdgeInsets.all(16),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
+      onTap: onTap,
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      color: Colors.white54,
-                      fontSize: 12,
-                    ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 12,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-            const Icon(
-              Icons.arrow_forward_ios_rounded,
-              color: AppColors.gold,
-              size: 14,
-            ),
-          ],
-        ),
+          ),
+          const Icon(
+            Icons.arrow_forward_ios_rounded,
+            color: AppColors.gold,
+            size: 14,
+          ),
+        ],
       ),
     );
   }
@@ -402,17 +432,22 @@ class _SettingsHubScreenState extends State<SettingsHubScreen> {
   }
 
   Widget _buildSignOutTile() {
-    return InkWell(
-      onTap: () => FirebaseAuth.instance.signOut(),
-      child: GlassCard(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            const Icon(Icons.logout, color: Colors.redAccent, size: 20),
-            const SizedBox(width: 12),
-            Text("Sign Out", style: GoogleFonts.outfit(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-          ],
-        ),
+    return GlassCard(
+      variant: GlassVariant.danger,
+      padding: const EdgeInsets.all(16),
+      onTap: _performSignOut,
+      child: Row(
+        children: [
+          Icon(Icons.logout_rounded, color: AppColors.errorColor, size: 20),
+          const SizedBox(width: 12),
+          Text(
+            'Sign Out',
+            style: GoogleFonts.outfit(
+              color: AppColors.errorColor,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -15,7 +15,7 @@ class VyMark extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Image.asset(
-      'assets/images/vyoma_small_icon.png',
+      'assets/images/vyoma_logo_black.png',
       width: size,
       height: size,
       fit: BoxFit.contain,
@@ -35,7 +35,7 @@ class VyWordmark extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Text(
-      'vyoma',
+      'Vyoma',
       style: TextStyle(
         fontFamily: VyType.fontFamily,
         fontSize: fontSize,

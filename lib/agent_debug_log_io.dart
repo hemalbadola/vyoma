@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 /// Cursor debug ingest + optional file append (workspace path fails under macOS sandbox).
 const _sessionId = '154eff';
 const _ingestUri =
@@ -15,6 +17,10 @@ Future<void> agentDebugNdjsonLog({
   required String message,
   Map<String, dynamic>? data,
 }) async {
+  if (!kDebugMode) {
+    return;
+  }
+
   try {
     final payload = <String, dynamic>{
       'sessionId': _sessionId,

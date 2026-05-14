@@ -101,7 +101,7 @@ const List<TutorialStepData> kTutorialSteps = [
   ),
   TutorialStepData(
     step: TutorialStep.warRoomChat,
-    title: 'The War Room',
+    title: 'Vyoma',
     body: 'This is your command centre. Type anything — "schedule physics lab tomorrow 2pm" — and Vyoma handles the rest.',
     arrowDirection: ArrowDirection.down,
     tooltipAnchor: Alignment.topCenter,

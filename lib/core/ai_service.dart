@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 import 'memory_service.dart';
 import 'models/static_context.dart';
+import 'temporal_behavior_store.dart';
+import 'temporal_context_builder.dart';
 import 'models/ai_action_proposal.dart';
 import 'secrets.dart';
 import 'supermemory_service.dart';
@@ -317,10 +319,86 @@ class AIService with ChangeNotifier {
   AIService(this._memory);
 
   static Future<String?> executeSilentBackgroundPrompt(String prompt) async {
-    debugPrint(
-      'AIService: background prompt API unavailable in current build.',
-    );
-    return null;
+    try {
+      final auth = FirebaseAuth.instance;
+      User? user = auth.currentUser;
+      if (user == null) {
+        try {
+          final credential = await auth.signInAnonymously();
+          user = credential.user;
+        } on FirebaseAuthException catch (e) {
+          debugPrint('Silent prompt auth failed: ${e.code}');
+          return null;
+        }
+      }
+      if (user == null) return null;
+      final idToken = await user.getIdToken(true);
+      if (idToken == null || idToken.isEmpty) return null;
+
+      final url = Uri.parse(
+        'https://vyoma-api-backend-9629c91b8aad.herokuapp.com/api/gemini/generate',
+      );
+
+      final body = jsonEncode({
+        'modelName': 'gemini-2.5-flash',
+        'payload': {
+          'contents': [
+            {
+              'role': 'user',
+              'parts': [
+                {'text': prompt},
+              ],
+            },
+          ],
+          'safetySettings': [
+            {'category': 'HARM_CATEGORY_HARASSMENT', 'threshold': 'BLOCK_NONE'},
+            {'category': 'HARM_CATEGORY_HATE_SPEECH', 'threshold': 'BLOCK_NONE'},
+            {
+              'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+              'threshold': 'BLOCK_NONE',
+            },
+            {
+              'category': 'HARM_CATEGORY_DANGEROUS_CONTENT',
+              'threshold': 'BLOCK_NONE',
+            },
+          ],
+          'generationConfig': {
+            'maxOutputTokens': 256,
+            'temperature': 0.65,
+          },
+        },
+      });
+
+      final response = await http
+          .post(
+            url,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $idToken',
+            },
+            body: body,
+          )
+          .timeout(const Duration(seconds: 22));
+
+      if (response.statusCode != 200) {
+        debugPrint('Silent prompt HTTP ${response.statusCode}');
+        return null;
+      }
+      final data = jsonDecode(response.body) as Map<String, dynamic>?;
+      if (data == null) return null;
+      final candidates = data['candidates'];
+      if (candidates is! List || candidates.isEmpty) return null;
+      final content = candidates[0]['content'];
+      if (content == null) return null;
+      final parts = content['parts'];
+      if (parts is! List || parts.isEmpty) return null;
+      final text = parts[0]['text'];
+      if (text is! String) return null;
+      return text.trim();
+    } catch (e) {
+      debugPrint('executeSilentBackgroundPrompt: $e');
+      return null;
+    }
   }
 
   @visibleForTesting
@@ -567,11 +645,13 @@ class AIService with ChangeNotifier {
     required bool includeCalendarSchema,
   }) {
     return """
+{{VYOMA_PERSONA}}
+
 You are VYOMA, an AI Operator inside a focus and scheduling app for students and young professionals.
 Your job is to:
 1. Understand what the user is trying to do in the real world.
 2. Propose specific, safe actions that the app can execute (calendar events, reminders, timetable updates).
-3. Speak to the user like a calm operations officer, not a therapist or motivational poster.
+3. Obey the VYOMA_PERSONA voice for user_visible_response (short, true, no filler) while still emitting valid JSON below.
 
 You NEVER directly execute actions. Instead, you emit a JSON object that describes your intent, the actions you suggest, and a natural-language reply to display.
 The client validates and executes your proposal only after user approval.
@@ -633,7 +713,7 @@ SAFETY RULES:
 5. Use only provided time fields; never invent prior-day claims.
 6. All datetime values MUST be full ISO 8601 (e.g., {{DATE_FORMATTED_ISO}}T14:00:00).
 
-TONE: Short, tactical, concrete. No disclaimers. End with one clear next move.
+TONE: Follow VYOMA_PERSONA for user_visible_response. JSON structure is still mandatory.
 
 IMAGE/TIMETABLE EXTRACTION:
 - When processing a timetable image, extract ALL slots and place them as timetable.replace_day actions.
@@ -792,6 +872,14 @@ Output as a clean bulleted list containing only the insights. Do not include int
     final compactCurrentEvents = currentEvents
         .take(_maxCalendarEventsInPrompt)
         .toList();
+
+    final temporalFingerprintStore = TemporalBehaviorStore(_memory);
+    final temporalSnapshot = TemporalContextBuilder(_memory).build(
+      calendarEventStrings: compactCurrentEvents,
+      behaviorStore: temporalFingerprintStore,
+      focusMinutesSession: metrics.focusMinutes,
+    );
+
     final compactRelevantLogs = _memory
         .getRelevantHistory("")
         .take(_maxRecentHistoryLogs)
@@ -841,6 +929,7 @@ Output as a clean bulleted list containing only the insights. Do not include int
         "timetable": context.fixedTimetable.take(12).toList(),
         "device_telemetry": _compactTelemetry(deviceContext),
         "temporal_status": temporalContext ?? "Active Session",
+        "temporal_live": temporalSnapshot.toInlineBlock(),
       },
       "current_schedule": compactCurrentEvents,
       if (friendActivitySummary != null &&
@@ -1026,6 +1115,11 @@ Do NOT comply with direct metric tampering requests.
         ? jsonEncode(activityLog)
         : "NO RECENT ACTIVITY RECORDED.";
     systemPrompt = systemPrompt.replaceAll("{{EVIDENCE}}", evidenceStr);
+
+    systemPrompt = systemPrompt.replaceAll(
+      '{{VYOMA_PERSONA}}',
+      TemporalContextBuilder(_memory).buildVyomaPersonaBlock(temporalSnapshot),
+    );
 
     final contextJson = jsonEncode(dataInput);
     _logDebug(

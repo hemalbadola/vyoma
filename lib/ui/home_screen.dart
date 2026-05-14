@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../core/memory_service.dart';
 import '../core/permission_manager.dart';
 import '../core/notification_service.dart';
+import '../core/background_agent.dart';
 import '../core/wakeup_service.dart';
 import 'screens/wakeup_screen.dart';
 import 'tabs/mission_tab.dart';
@@ -21,6 +24,7 @@ import '../core/user_service.dart';
 import '../core/telemetry_service.dart';
 import '../tutorial/tutorial_controller.dart';
 import '../tutorial/tutorial_keys.dart';
+import '../core/app_trace.dart';
 import '../core/theme/vyoma_tokens.dart';
 import '../core/widgets/vy_loader.dart';
 import '../features/bindu_moment/domain/agitation_detector.dart';
@@ -130,6 +134,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       await tc.hydrateFromPrefs();
       if (!mounted) return;
       _tutorialListener();
+      await BackgroundAgentEngine.initialize();
     });
   }
 
@@ -155,6 +160,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } else if (state == AppLifecycleState.resumed) {
       debugPrint("LIFECYCLE_DEBUG: App Resumed. Entering High Fidelity Mode.");
       telemetry.notifyAppForegrounded();
+      if (mounted) {
+        final notifications = context.read<NotificationService>();
+        unawaited(notifications.refreshAmbientFromPrefs());
+      }
     }
   }
 
@@ -212,7 +221,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Widget _buildHomeScaffold(BuildContext context) {
     _buildTick += 1;
     final tabName = _tabs[_currentIndex].runtimeType.toString();
-    debugPrint(
+    traceDebug(
       'UI_DEBUG: Home scaffold build #$_buildTick | currentIndex=$_currentIndex | tab=$tabName',
     );
     return Shortcuts(
@@ -264,7 +273,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 Positioned.fill(
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      debugPrint(
+                      traceDebug(
                         'UI_DEBUG: Tab host constraints | maxW=${constraints.maxWidth} maxH=${constraints.maxHeight}',
                       );
                       return IndexedStack(

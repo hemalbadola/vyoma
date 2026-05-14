@@ -7,8 +7,7 @@ import '../../tutorial/tutorial_controller.dart';
 import '../../core/theme/app_theme.dart';
 import '../widgets/glass_card.dart';
 
-/// Simplified Preferences Screen — manages display and notification settings.
-/// Proactive Sentinel patrol has been removed to eliminate background API usage.
+/// Preferences — display, notifications, routine.
 class PreferencesScreen extends StatefulWidget {
   const PreferencesScreen({super.key});
 
@@ -76,7 +75,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
             _buildSyncCard(),
 
             const SizedBox(height: 32),
-            // Info card — sentinel removed
+            // Info — background ticks (Workmanager) are clock-driven; optional Gemini polish uses your session.
             GlassCard(
               padding: const EdgeInsets.all(16),
               child: Row(
@@ -86,8 +85,8 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      'Background AI patrol has been removed to conserve API quota. '
-                      'Vyoma now responds only when you initiate a conversation.',
+                      'Vyoma can wake on a schedule for deadline nudges and short post-class debriefs. '
+                      'An ongoing notification shows focus + next calendar anchor after you open chat with calendar sync.',
                       style: GoogleFonts.outfit(
                           color: Colors.white54, fontSize: 13, height: 1.5),
                     ),

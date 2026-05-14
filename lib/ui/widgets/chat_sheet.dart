@@ -36,7 +36,7 @@ class ChatSheetPresentation {
 class ChatSheet extends StatefulWidget {
   const ChatSheet({super.key});
 
-  /// Slide-up route used everywhere War Room chat is opened (tutorial + manual).
+  /// Slide-up route used everywhere Vyoma chat is opened (tutorial + manual).
   static PageRoute<void> slideUpRoute() {
     return PageRouteBuilder<void>(
       settings: const RouteSettings(name: 'vyoma_chat_sheet'),

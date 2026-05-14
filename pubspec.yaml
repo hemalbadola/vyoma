@@ -1,5 +1,5 @@
 name: vyoma
-description: "Vyoma - Extract Meaning. An AI-powered personal intelligence assistant."
+description: "Vyoma — cognitive companion for students."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.11.0+6
+version: 1.11.2+8
 
 environment:
   sdk: ^3.10.3
@@ -34,10 +34,11 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  firebase_core: any
-  firebase_auth: any
-  cloud_firestore: any
-  firebase_analytics: any
+  firebase_core: 4.7.0
+  firebase_auth: 6.4.0
+  cloud_firestore: 6.3.0
+  firebase_analytics: 12.3.0
+  firebase_crashlytics: 5.2.0
   qr_flutter: any
   mobile_scanner: any
   share_plus: any
@@ -68,7 +69,7 @@ dependencies:
   desktop_drop: ^0.7.0
   cross_file: ^0.3.5+2
   cloud_functions: ^6.2.0
-  workmanager: any
+  workmanager: 0.9.0+3
   flutter_native_splash: ^2.4.1
 
 dev_dependencies:
@@ -98,7 +99,6 @@ flutter:
     # .env intentionally NOT listed as asset — use --dart-define or backend proxy for secrets
     - assets/images/vyoma_logo_black.png
     - assets/images/vyoma_logo_transparent.png
-    - assets/images/vyoma_small_icon.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
@@ -124,12 +124,12 @@ flutter_launcher_icons:
   image_path: "assets/images/vyoma_logo_black.png"
   min_sdk_android: 21
   adaptive_icon_background: "#0D0D0B"
-  adaptive_icon_foreground: "assets/images/vyoma_logo_transparent.png"
+  adaptive_icon_foreground: "assets/images/vyoma_logo_black.png"
   remove_alpha_ios: true
 
 flutter_native_splash:
   color: "#0D0D0B"
-  image: assets/images/vyoma_logo_transparent.png
+  image: assets/images/vyoma_logo_black.png
   android_12:
     color: "#0D0D0B"
-    image: assets/images/vyoma_logo_transparent.png
+    image: assets/images/vyoma_logo_black.png

@@ -57,7 +57,7 @@ class TutorialController extends ChangeNotifier {
         targetWidgetKey: VyomaTutorialKeys.navWarRoom,
         title: 'Your Command Center',
         description:
-            'The War Room is where everything happens. Start here every day.',
+            'Vyoma is your home base — start here every day.',
         arrowDirection: TutorialArrowDirection.bottom,
         highlightShape: TutorialHighlightShape.rectangle,
       ),

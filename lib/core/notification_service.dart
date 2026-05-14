@@ -110,6 +110,7 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
   bool _initialized = false;
   int _idSeed = 2000;
+  static const int _ambientNotificationId = 91001;
   static const String _pendingKey = 'vyoma_pending_notifications';
   static const String _historyKey = 'vyoma_notification_history';
   final StreamController<int> _unreadCountController = StreamController<int>.broadcast();
@@ -180,6 +181,51 @@ class NotificationService {
         sentAt: DateTime.now(),
       ),
     );
+  }
+
+  /// Persistent low-priority shade / lock-screen line (updated by app + background ticks).
+  Future<void> showAmbientOngoing(String body) async {
+    await ensureInitialized();
+    final trimmed = body.trim();
+    if (trimmed.isEmpty) return;
+
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'vyoma_ambient',
+        'Vyoma rhythm',
+        channelDescription: 'Focus minutes and next calendar anchor',
+        importance: Importance.low,
+        priority: Priority.low,
+        ongoing: true,
+        onlyAlertOnce: true,
+        showWhen: false,
+      ),
+      iOS: DarwinNotificationDetails(
+        presentAlert: false,
+        presentBadge: false,
+        presentSound: false,
+      ),
+      macOS: DarwinNotificationDetails(
+        presentAlert: false,
+        presentBadge: false,
+        presentSound: false,
+      ),
+    );
+
+    await _plugin.show(
+      _ambientNotificationId,
+      'Vyoma',
+      trimmed,
+      details,
+    );
+  }
+
+  /// Re-show ambient line from prefs (used by Workmanager isolate).
+  Future<void> refreshAmbientFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final line = prefs.getString('vyoma_ambient_line');
+    if (line == null || line.trim().isEmpty) return;
+    await showAmbientOngoing(line);
   }
 
   Future<List<NotificationRecord>> getHistory({int limit = 100}) async {

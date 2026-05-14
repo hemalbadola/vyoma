@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:googleapis/calendar/v3.dart' as calendar;
 import '../core/ai_service.dart';
 import '../core/calendar_service.dart';
@@ -22,6 +24,8 @@ import '../core/policy_engine.dart';
 import '../core/execution_engine.dart';
 import '../core/audit_logger.dart' as protocol_audit;
 import '../core/executor_adapters.dart';
+import '../core/temporal_behavior_store.dart';
+import '../core/temporal_context_builder.dart';
 import '../services/audit_logger.dart' as app_audit;
 
 
@@ -153,6 +157,11 @@ class WarRoomViewModel extends ChangeNotifier {
   // Minimal proactive loop to keep the "companion" behavior alive.
   Timer? _focusCheckTimer;
 
+  /// Chat/session JSON lives under `Documents/chat_sessions/<uid>/` so account switches do not share history.
+  String _sessionStorageUid = '__guest__';
+  int _sessionGeneration = 0;
+  StreamSubscription<User?>? _authUidSubscription;
+
   // Metrics Logic
   ProductivityMetrics _currentMetrics = ProductivityMetrics.initial();
   ProductivityMetrics get currentMetrics => _currentMetrics;
@@ -203,8 +212,78 @@ class WarRoomViewModel extends ChangeNotifier {
       },
     );
     _startFocusCheckLoop();
+
+    _sessionStorageUid = FirebaseAuth.instance.currentUser?.uid ?? '__guest__';
+    _bindChatStorageToAuth();
+    _sessionGeneration++;
     _initSessions();
+
     _loadMetrics();
+  }
+
+  void _bindChatStorageToAuth() {
+    _authUidSubscription?.cancel();
+    _authUidSubscription = FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (_disposed) return;
+      final next = user?.uid ?? '__guest__';
+      if (next == _sessionStorageUid) return;
+      _sessionGeneration++;
+      _sessionStorageUid = next;
+      _sessions = [];
+      _messages = [];
+      _currentSessionId = null;
+      notifyListeners();
+      _initSessions();
+    });
+  }
+
+  Future<Directory> _chatSessionsDirectory() async {
+    final base = await getApplicationDocumentsDirectory();
+    final dir = Directory('${base.path}/chat_sessions/$_sessionStorageUid');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
+  /// Copies legacy doc-root `sessions_index.json` + `session_*.json` into **one** Firebase uid folder
+  /// so switching accounts does not duplicate another user's history onto a new uid.
+  Future<void> _migrateLegacySessionsIfNeeded(Directory chatDir) async {
+    if (_sessionStorageUid == '__guest__') return;
+
+    final indexInUid = File('${chatDir.path}/sessions_index.json');
+    if (await indexInUid.exists()) return;
+
+    final base = await getApplicationDocumentsDirectory();
+    final legacyIndex = File('${base.path}/sessions_index.json');
+    if (!await legacyIndex.exists()) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final migratedUid = prefs.getString('vyoma_chat_legacy_migrated_uid');
+    if (migratedUid != null && migratedUid != _sessionStorageUid) {
+      return;
+    }
+
+    try {
+      await legacyIndex.copy(indexInUid.path);
+      final raw = await indexInUid.readAsString();
+      final sessionList = jsonDecode(raw) as List<dynamic>;
+      for (final e in sessionList) {
+        final map = e as Map<String, dynamic>;
+        final id = map['id'] as String;
+        final src = File('${base.path}/session_$id.json');
+        final dst = File('${chatDir.path}/session_$id.json');
+        if (await src.exists()) {
+          await src.copy(dst.path);
+        }
+      }
+      await prefs.setString('vyoma_chat_legacy_migrated_uid', _sessionStorageUid);
+      debugPrint(
+        'WARROOM_DEBUG: Migrated legacy chat index into chat_sessions/$_sessionStorageUid/',
+      );
+    } catch (e) {
+      debugPrint('WARROOM_DEBUG: Legacy chat migration failed: $e');
+    }
   }
 
   void _startFocusCheckLoop() {
@@ -249,22 +328,26 @@ class WarRoomViewModel extends ChangeNotifier {
     _addSystemStatus(normalized, persist: persist);
   }
   
-  Future<Directory> _getDocsDir() async => await getApplicationDocumentsDirectory();
-
   Future<void> _initSessions() async {
-    final dir = await _getDocsDir();
+    final gen = _sessionGeneration;
+    final dir = await _chatSessionsDirectory();
+    if (gen != _sessionGeneration) return;
+
+    await _migrateLegacySessionsIfNeeded(dir);
+    if (gen != _sessionGeneration) return;
+
     final indexFile = File('${dir.path}/sessions_index.json');
     final legacyFile = File('${dir.path}/chat_history.json');
 
     if (await indexFile.exists()) {
        final jsonStr = await indexFile.readAsString();
        final sessionList = jsonDecode(jsonStr) as List;
-       _sessions = sessionList.map((e) => ChatSession.fromJson(e)).toList();
+       _sessions = sessionList.map((e) => ChatSession.fromJson(e as Map<String, dynamic>)).toList();
        
        // Sort by date desc
        _sessions.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     } else if (await legacyFile.exists()) {
-       // Migration
+       // Migration (within this uid folder)
        final legacyId = DateTime.now().millisecondsSinceEpoch.toString();
        final session = ChatSession(id: legacyId, title: "Legacy Chat", createdAt: DateTime.now());
        _sessions.add(session);
@@ -274,6 +357,8 @@ class WarRoomViewModel extends ChangeNotifier {
        await legacyFile.rename('${dir.path}/session_$legacyId.json');
     }
 
+    if (gen != _sessionGeneration) return;
+
     if (_sessions.isEmpty) {
       await startNewSession(); 
     } else {
@@ -282,7 +367,7 @@ class WarRoomViewModel extends ChangeNotifier {
   }
 
   Future<void> _saveSessionIndex() async {
-    final dir = await _getDocsDir();
+    final dir = await _chatSessionsDirectory();
     final file = File('${dir.path}/sessions_index.json');
     await file.writeAsString(jsonEncode(_sessions.map((e) => e.toJson()).toList()));
   }
@@ -320,13 +405,13 @@ class WarRoomViewModel extends ChangeNotifier {
     _messages = [];
     notifyListeners();
 
-    final dir = await _getDocsDir();
+    final dir = await _chatSessionsDirectory();
     final file = File('${dir.path}/session_$id.json');
     
     if (await file.exists()) {
       try {
         final jsonStr = await file.readAsString();
-        final List list = jsonDecode(jsonStr);
+        final List list = jsonDecode(jsonStr) as List;
         _messages = list.map((e) => ChatMessage(
           sender: e['sender'], 
           text: e['text'], 
@@ -342,7 +427,7 @@ class WarRoomViewModel extends ChangeNotifier {
   }
 
   Future<void> deleteSession(String id) async {
-    final dir = await _getDocsDir();
+    final dir = await _chatSessionsDirectory();
     final file = File('${dir.path}/session_$id.json');
     if (await file.exists()) await file.delete();
 
@@ -362,7 +447,7 @@ class WarRoomViewModel extends ChangeNotifier {
 
   Future<void> _saveCurrentChat() async {
     if (_currentSessionId == null) return;
-    final dir = await _getDocsDir();
+    final dir = await _chatSessionsDirectory();
     final file = File('${dir.path}/session_$_currentSessionId.json');
     
     final jsonList = _messages.where((m) => m.sender != 'SYSTEM' || !m.text.contains('---')).map((m) => {
@@ -548,6 +633,14 @@ class WarRoomViewModel extends ChangeNotifier {
     ).hasMatch(lower);
   }
 
+  Future<void> _persistVyomaRuntimeState() async {
+    await _aiService.memory.updateSegment('vyoma_runtime_state', {
+      'focus_active': _focusSessionActive,
+      'focus_intent': _focusSessionIntent,
+      'focus_started_at': _focusSessionStartedAt?.toIso8601String(),
+    });
+  }
+
   Future<void> submitCommand(String text) async {
     if (_handleControlCommand(text.trim())) return;
 
@@ -558,6 +651,10 @@ class WarRoomViewModel extends ChangeNotifier {
       "USER", 
       text, 
       imageBytes: _selectedImageBytes
+    );
+    await _aiService.memory.updateSegment(
+      'vyoma_last_user_message_at',
+      DateTime.now().toIso8601String(),
     );
 
     final lowerInput = text.toLowerCase().trim();
@@ -736,6 +833,19 @@ class WarRoomViewModel extends ChangeNotifier {
         debugPrint("Calendar Sync Error: $e");
         _addSystemStatus("Calendar is unavailable right now. Continuing without schedule context.");
       }
+
+      var focusForAmbient = _currentMetrics.focusMinutes;
+      if (_focusSessionActive && _focusSessionStartedAt != null) {
+        focusForAmbient += DateTime.now()
+            .difference(_focusSessionStartedAt!)
+            .inMinutes;
+      }
+      final ambientSnap = TemporalContextBuilder(_aiService.memory).build(
+        calendarEventStrings: eventStrings,
+        focusMinutesSession: focusForAmbient,
+      );
+      await VyomaAmbientPrefs.write(ambientSnap);
+      await _notificationService.showAmbientOngoing(ambientSnap.ambientLine);
 
       // 2. Consult General
       // Silent Uplink
@@ -997,6 +1107,14 @@ class WarRoomViewModel extends ChangeNotifier {
 
       final stabilized = _stabilizeAssistantResponse(verbal, text);
       _addMessage("VYOMA", stabilized);
+      unawaited(
+        TemporalBehaviorStore(_aiService.memory).record(
+          kind: 'chat_turn',
+          taskTitle: _focusSessionIntent,
+          outcome: 'vyoma_reply',
+          sessionLengthChars: stabilized.length,
+        ),
+      );
       debugPrint("DEBUG_TRACE: Message Added Successfully.");
 
     } catch (e, stacktrace) {
@@ -1728,6 +1846,7 @@ class WarRoomViewModel extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _focusCheckTimer?.cancel();
+    _authUidSubscription?.cancel();
     super.dispose();
   }
 
@@ -1940,6 +2059,14 @@ class WarRoomViewModel extends ChangeNotifier {
       _focusSessionStartedAt = DateTime.now();
       _addSystemStatus("Focus session started: $intent", persist: false);
       notifyListeners();
+      unawaited(_persistVyomaRuntimeState());
+      unawaited(
+        TemporalBehaviorStore(_aiService.memory).record(
+          kind: 'focus_start',
+          taskTitle: intent,
+          outcome: 'started',
+        ),
+      );
       return true;
     }
 
@@ -1950,12 +2077,23 @@ class WarRoomViewModel extends ChangeNotifier {
       }
 
       final startedAt = _focusSessionStartedAt;
+      final intentWas = _focusSessionIntent;
       final mins = startedAt == null ? 0 : DateTime.now().difference(startedAt).inMinutes;
+      final secs = startedAt == null ? 0 : DateTime.now().difference(startedAt).inSeconds;
       _focusSessionActive = false;
       _focusSessionIntent = null;
       _focusSessionStartedAt = null;
       _addSystemStatus("Focus session ended. Duration: ${mins}m", persist: false);
       notifyListeners();
+      unawaited(_persistVyomaRuntimeState());
+      unawaited(
+        TemporalBehaviorStore(_aiService.memory).record(
+          kind: 'focus_end',
+          taskTitle: intentWas,
+          outcome: 'stopped',
+          durationSeconds: secs,
+        ),
+      );
       return true;
     }
 

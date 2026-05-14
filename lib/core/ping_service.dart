@@ -8,18 +8,29 @@ class PingService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final NotificationService _notificationService;
-  
-  StreamSubscription? _pingSub;
+
+  StreamSubscription<User?>? _authSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _pingSub;
   final DateTime _startupTime = DateTime.now();
 
   PingService(this._notificationService) {
-    _auth.authStateChanges().listen((user) {
+    final initial = _auth.currentUser;
+    if (initial != null) {
+      _listenForPings(initial.uid);
+    }
+    _authSub = _auth.authStateChanges().listen((user) {
       if (user != null) {
         _listenForPings(user.uid);
       } else {
         _pingSub?.cancel();
+        _pingSub = null;
       }
     });
+  }
+
+  void dispose() {
+    _authSub?.cancel();
+    _pingSub?.cancel();
   }
 
   void _listenForPings(String uid) {
@@ -37,7 +48,7 @@ class PingService {
           final taskTitle = data['taskTitle'] ?? 'a task';
           
           _notificationService.notifyNow(
-            title: "🔔 Nudge from $fromName",
+            title: 'Nudge from $fromName',
             body: "Don't forget to finish: $taskTitle",
           );
         }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -6,6 +8,9 @@ import 'models/user_profile.dart';
 class UserService extends ChangeNotifier {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileSubscription;
+  String? _listeningUid;
 
   UserProfile? _currentProfile;
   UserProfile? get currentProfile => _currentProfile;
@@ -16,33 +21,51 @@ class UserService extends ChangeNotifier {
   UserProfile? get profile => _currentProfile;
 
   UserService() {
-    // Listen to Firebase Auth state
     _auth.authStateChanges().listen((user) {
-      if (user != null) {
-        _listenToProfile(user.uid);
-      } else {
+      _profileSubscription?.cancel();
+      _profileSubscription = null;
+
+      if (user == null) {
+        _listeningUid = null;
         _currentProfile = null;
         _isProfileLoaded = true;
         notifyListeners();
+        return;
       }
+
+      if (_listeningUid == user.uid) {
+        return;
+      }
+
+      _listeningUid = user.uid;
+      _currentProfile = null;
+      _isProfileLoaded = false;
+      notifyListeners();
+
+      _profileSubscription = _firestore.collection('users').doc(user.uid).snapshots().listen(
+        (doc) {
+          if (doc.exists) {
+            _currentProfile = UserProfile.fromFirestore(doc);
+          } else {
+            _currentProfile = null;
+          }
+          _isProfileLoaded = true;
+          notifyListeners();
+        },
+        onError: (e) {
+          debugPrint('UserService snapshot error: $e');
+          _isProfileLoaded = true;
+          _currentProfile = null;
+          notifyListeners();
+        },
+      );
     });
   }
 
-  void _listenToProfile(String uid) {
-    _firestore.collection('users').doc(uid).snapshots().listen((doc) {
-      if (doc.exists) {
-        _currentProfile = UserProfile.fromFirestore(doc);
-      } else {
-        _currentProfile = null;
-      }
-      _isProfileLoaded = true;
-      notifyListeners();
-    }, onError: (e) {
-      debugPrint("UserService snapshot error: $e");
-      _isProfileLoaded = true;
-      _currentProfile = null;
-      notifyListeners();
-    });
+  @override
+  void dispose() {
+    _profileSubscription?.cancel();
+    super.dispose();
   }
 
   /// Checks the isolated 'usernames' collection for O(1) existence check

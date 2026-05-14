@@ -22,6 +22,7 @@ import '../../ui/widgets/vault_journal_view.dart';
 import '../../ui/screens/friends_hub_screen.dart';
 import '../../ui/screens/timetable_screen.dart';
 import '../../tutorial/tutorial_keys.dart';
+import '../../core/app_trace.dart';
 import '../../features/dharma_map/presentation/widgets/current_chapter_strip.dart';
 import '../../features/identity/presentation/widgets/identity_anchor_strip.dart';
 import '../../features/today/presentation/widgets/memory_braid_card.dart';
@@ -126,7 +127,7 @@ class MissionTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('UI_DEBUG: MissionTab build() entered');
+    traceDebug('UI_DEBUG: MissionTab build() entered');
     return Container(
       color: Colors.transparent,
       child: SafeArea(
@@ -137,7 +138,7 @@ class MissionTab extends StatelessWidget {
               constraints: const BoxConstraints(maxWidth: 720),
               child: Consumer2<WarRoomViewModel, MemoryService>(
                 builder: (context, vm, memory, _) {
-                  debugPrint(
+                  traceDebug(
                     'UI_DEBUG: MissionTab consumer build | focusMin=${vm.currentMetrics.focusMinutes} tasksDone=${vm.currentMetrics.tasksCompleted} facts=${memory.getFacts().length}',
                   );
                   final suggestions = _getContextualSuggestions(vm, memory);
