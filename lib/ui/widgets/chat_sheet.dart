@@ -269,21 +269,7 @@ class _ChatSheetState extends State<ChatSheet> with TickerProviderStateMixin {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: VyomaColors.info,
-              boxShadow: [
-                BoxShadow(
-                  color: VyomaColors.info.withValues(alpha: 0.45),
-                  blurRadius: 8,
-                  spreadRadius: 1,
-                ),
-              ],
-            ),
-          ),
+          const VyMark(size: 20),
           const SizedBox(width: 8),
           Text(
             'Vyoma',
@@ -585,101 +571,118 @@ class _ChatSheetState extends State<ChatSheet> with TickerProviderStateMixin {
                 border: Border(bottom: BorderSide(color: Colors.white.withValues(alpha: 0.04))),
               ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                   IconButton(
-                     icon: const Icon(Icons.arrow_back_ios, color: Colors.white54, size: 20),
-                     onPressed: () => Navigator.pop(context),
-                   ),
-                  const VyMark(size: 28),
-                   // Status Indicators
-                   Consumer<WarRoomViewModel>(
-                     builder: (context, vm, _) {
-                       if (vm.isSavingMemory) {
-                          return const Tooltip(
-                            message: "Saving Memory",
-                            child: Icon(Icons.circle, color: Colors.orangeAccent, size: 8),
-                          );
-                       }
-                       if (vm.isSyncing) {
-                          return const Tooltip(
-                            message: "Syncing Data",
-                            child: Icon(Icons.circle, color: Colors.blueAccent, size: 8),
-                          );
-                       }
-                       return const SizedBox(width: 8);
-                     }
-                   ),
-                   Consumer<WarRoomViewModel>(
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back_ios, color: Colors.white54, size: 20),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  const SizedBox(width: 4),
+                  const VyMark(size: 32),
+                  const Spacer(),
+                  Consumer<WarRoomViewModel>(
+                    builder: (context, vm, _) {
+                      if (vm.isSavingMemory) {
+                        return const Tooltip(
+                          message: 'Saving Memory',
+                          child: Icon(Icons.circle, color: Colors.orangeAccent, size: 8),
+                        );
+                      }
+                      if (vm.isSyncing) {
+                        return const Tooltip(
+                          message: 'Syncing Data',
+                          child: Icon(Icons.circle, color: Colors.blueAccent, size: 8),
+                        );
+                      }
+                      return const SizedBox(width: 8);
+                    },
+                  ),
+                  Consumer<WarRoomViewModel>(
                     builder: (context, vm, _) => Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         IconButton(
                           icon: const Icon(Icons.undo_rounded, color: Colors.white54, size: 22),
-                          tooltip: "Undo last AI action",
+                          tooltip: 'Undo last AI action',
                           onPressed: vm.canUndo ? () => vm.undoLastAction() : null,
                         ),
                         IconButton(
                           icon: const Icon(Icons.history, color: Colors.white54, size: 24),
-                          tooltip: "History",
+                          tooltip: 'History',
                           onPressed: () {
-                             showModalBottomSheet(
-                               context: context, 
-                               backgroundColor: const Color(0xFF111518),
-                               shape: const RoundedRectangleBorder(
-                                 borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                               ),
-                               builder: (_) => SizedBox(
-                                 height: 400,
-                                 child: Column(
-                                   children: [
-                                     Container(
-                                       width: 40,
-                                       height: 4,
-                                       margin: const EdgeInsets.only(top: 12, bottom: 16),
-                                       decoration: BoxDecoration(
-                                         color: Colors.white24,
-                                         borderRadius: BorderRadius.circular(2),
-                                       ),
-                                     ),
-                                     Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                                        child: Text("Mission Log", style: GoogleFonts.jetBrainsMono(color: Colors.white70, fontSize: 14, letterSpacing: 1.5)),
-                                     ),
-                                     const SizedBox(height: 12),
-                                     Expanded(
-                                       child: ListView.builder(
-                                         itemCount: vm.sessions.length,
-                                         itemBuilder: (ctx, i) {
-                                           final session = vm.sessions[i];
-                                           final isSelected = session.id == vm.currentSessionId;
-                                           return ListTile(
-                                             title: Text(session.title, style: GoogleFonts.inter(color: isSelected ? Colors.white : Colors.white70, fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal)),
-                                             subtitle: Text(session.createdAt.toString().substring(0, 16), style: const TextStyle(color: Colors.white24, fontSize: 12)),
-                                             tileColor: isSelected ? Colors.white.withValues(alpha: 0.05) : null,
-                                             trailing: IconButton(
-                                               icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-                                               onPressed: () {
-                                                  vm.deleteSession(session.id);
-                                                  Navigator.pop(ctx);
-                                               },
-                                             ),
-                                             onTap: () {
-                                               vm.loadSession(session.id);
-                                               Navigator.pop(ctx);
-                                             },
-                                           );
-                                         }
-                                       ),
-                                     ),
-                                   ],
-                                 ),
-                               )
-                             );
+                            showModalBottomSheet(
+                              context: context,
+                              backgroundColor: const Color(0xFF111518),
+                              shape: const RoundedRectangleBorder(
+                                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                              ),
+                              builder: (_) => SizedBox(
+                                height: 400,
+                                child: Column(
+                                  children: [
+                                    Container(
+                                      width: 40,
+                                      height: 4,
+                                      margin: const EdgeInsets.only(top: 12, bottom: 16),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white24,
+                                        borderRadius: BorderRadius.circular(2),
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                                      child: Text(
+                                        'Mission Log',
+                                        style: GoogleFonts.jetBrainsMono(
+                                          color: Colors.white70,
+                                          fontSize: 14,
+                                          letterSpacing: 1.5,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Expanded(
+                                      child: ListView.builder(
+                                        itemCount: vm.sessions.length,
+                                        itemBuilder: (ctx, i) {
+                                          final session = vm.sessions[i];
+                                          final isSelected = session.id == vm.currentSessionId;
+                                          return ListTile(
+                                            title: Text(
+                                              session.title,
+                                              style: GoogleFonts.inter(
+                                                color: isSelected ? Colors.white : Colors.white70,
+                                                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                                              ),
+                                            ),
+                                            subtitle: Text(
+                                              session.createdAt.toString().substring(0, 16),
+                                              style: const TextStyle(color: Colors.white24, fontSize: 12),
+                                            ),
+                                            tileColor: isSelected ? Colors.white.withValues(alpha: 0.05) : null,
+                                            trailing: IconButton(
+                                              icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                                              onPressed: () {
+                                                vm.deleteSession(session.id);
+                                                Navigator.pop(ctx);
+                                              },
+                                            ),
+                                            onTap: () {
+                                              vm.loadSession(session.id);
+                                              Navigator.pop(ctx);
+                                            },
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
                           },
                         ),
                         IconButton(
                           icon: const Icon(Icons.add_comment_rounded, color: Colors.white54, size: 20),
-                          tooltip: "New Chat",
+                          tooltip: 'New Chat',
                           onPressed: () => vm.startNewSession(),
                         ),
                       ],

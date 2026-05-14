@@ -11,7 +11,7 @@ abstract final class VyomaSpacing {
   static const double xxxl = 48.0;
 
   // Bottom nav offset — consistent across all scrollable screens.
-  // Source: mission_tab, command_center_tab use padding bottom: 120.
+  // Source: mission_tab and similar tabs use padding bottom: 120.
   static const double navOffset = 120.0;
 
   // ── Border Radius Scale ──────────────────────────────────────
@@ -22,8 +22,7 @@ abstract final class VyomaSpacing {
   // Small badges / chips. Source: friends_hub:386,430, preferences:241 (radius: 4).
   static const double radiusSm  =  4.0;
 
-  // Archive-specific (3 uses). Added to avoid magic numbers.
-  // Source: archive_tab (radius: 7).
+  // Small radius used in a few legacy layouts (radius: 7).
   static const double radius7   =  7.0;
 
   // Buttons, compact containers. Source: 12+ (radius: 8).

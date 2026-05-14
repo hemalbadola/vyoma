@@ -62,7 +62,8 @@ class TemporalBehaviorStore {
       if (e['kind'] == 'focus_end') {
         focusEnds++;
         final d = e['duration_sec'];
-        if (d is int) sumFocusMin += d ~/ 60;
+        final sec = d is int ? d : (d is num ? d.toInt() : int.tryParse('$d') ?? 0);
+        sumFocusMin += sec ~/ 60;
       }
     }
 

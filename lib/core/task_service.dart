@@ -20,6 +20,8 @@ import 'models/task.dart';
 class TaskService extends ChangeNotifier {
   static const String _kLegacyTasksKey = 'vyoma_tasks';
   static const String _kLegacyDailyKey = 'vyoma_daily_metrics';
+  /// Persisted for [TaskPrefsReader] in Workmanager isolates (no FirebaseAuth there).
+  static const String kLastKnownUidKey = 'vyoma_last_known_uid';
 
   final AccountabilityService? _accountability;
   final CoFocusService? _coFocusService;
@@ -77,6 +79,7 @@ class TaskService extends ChangeNotifier {
 
     final prefs = await SharedPreferences.getInstance();
     await _migrateLegacyPrefsIfNeeded(prefs, uid);
+    await _persistLastKnownUid(prefs, boundSessionUid: uid);
     if (gen != _bindGeneration) return;
 
     await _loadTasksFromPrefs(uid);
@@ -231,6 +234,18 @@ class TaskService extends ChangeNotifier {
       _tasksPrefsKey(_firestoreUid),
       jsonEncode(_tasks.map((t) => t.toJson()).toList()),
     );
+    await _persistLastKnownUid(prefs);
+  }
+
+  Future<void> _persistLastKnownUid(
+    SharedPreferences prefs, {
+    String? boundSessionUid,
+  }) async {
+    final uid =
+        boundSessionUid ??
+        FirebaseAuth.instance.currentUser?.uid ??
+        _firestoreUid;
+    await prefs.setString(kLastKnownUidKey, uid ?? '');
   }
 
   Future<void> _persistCloudAndPrefs(VyomaTask? touched) async {

@@ -56,8 +56,35 @@ class MemoryService extends ChangeNotifier {
   Future<void> init() async {
     if (_isInitialized) return;
     await _loadMemory();
+    if (_pruneStalePendingDebriefs()) {
+      await _saveMemory();
+    }
     _isInitialized = true;
     notifyListeners();
+  }
+
+  /// Drops debrief rows whose event ended more than 24h ago so memory.json stays small.
+  bool _pruneStalePendingDebriefs() {
+    final raw = _memory['pending_debriefs'];
+    if (raw is! List || raw.isEmpty) return false;
+    final now = DateTime.now();
+    final kept = <dynamic>[];
+    var removed = false;
+    for (final e in raw) {
+      if (e is! Map) {
+        kept.add(e);
+        continue;
+      }
+      final end = DateTime.tryParse(e['endTime']?.toString() ?? '');
+      if (end != null && now.difference(end).inHours > 24) {
+        removed = true;
+        continue;
+      }
+      kept.add(e);
+    }
+    if (!removed) return false;
+    _memory['pending_debriefs'] = kept;
+    return true;
   }
 
   Future<File> _getFile() async {

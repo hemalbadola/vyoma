@@ -1,12 +1,10 @@
-import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'ai_service.dart';
 import 'memory_service.dart';
 import 'notification_service.dart';
 import 'temporal_behavior_store.dart';
 
-/// Post-calendar debriefs: act on elapsed time, not only restoring scheduled toasts.
+/// Post-event debrief nudges — **zero AI / zero API** (rotating templates only).
 class WatchtowerService {
   WatchtowerService({
     required this.memory,
@@ -16,7 +14,20 @@ class WatchtowerService {
   final MemoryService memory;
   final NotificationService notifications;
 
+  static const List<String> _debriefLines = [
+    '{event} just ended. How did it go?',
+    'You finished {event}. Worth noting anything?',
+    '{event} is done.',
+  ];
+
   static String _sentKey(String eventId) => 'vyoma_watchtower_debrief_$eventId';
+
+  static String _pickBody(String eventTitle) {
+    final idx =
+        (DateTime.now().minute + 3) % _debriefLines.length; // offset from Sentinel
+    final template = _debriefLines[idx];
+    return template.replaceAll('{event}', eventTitle);
+  }
 
   /// Fire at most one debrief nudge per tick (oldest eligible).
   Future<void> tick() async {
@@ -36,25 +47,7 @@ class WatchtowerService {
       if (elapsed.inHours > 6) continue;
       if (prefs.getBool(_sentKey(d.eventId)) == true) continue;
 
-      var body =
-          '${d.title} ended ${elapsed.inMinutes}m ago. One line: what actually happened before you move on?';
-
-      try {
-        final prompt = '''
-Vyoma watchtower: calendar block just ended.
-Event: ${d.title}
-Minutes since end: ${elapsed.inMinutes}
-Write ONE short push notification (max 120 chars), calm, no guilt. Plain text only.
-''';
-        final refined = await AIService.executeSilentBackgroundPrompt(prompt);
-        if (refined != null &&
-            refined.trim().isNotEmpty &&
-            refined.length < 200) {
-          body = refined.trim();
-        }
-      } catch (e) {
-        debugPrint('WatchtowerService: LLM debrief failed $e');
-      }
+      final body = _pickBody(d.title);
 
       await notifications.notifyNow(title: 'Vyoma', body: body);
       await prefs.setBool(_sentKey(d.eventId), true);

@@ -81,6 +81,7 @@ class BackgroundAgentEngine {
     await Workmanager().cancelAll();
   }
 
+  /// Cancels periodic Workmanager tasks. Call on sign-out if you want background ticks to stop.
   static void dispose() {
     unawaited(cancelAll());
   }

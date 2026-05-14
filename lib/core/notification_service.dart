@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:async';
+
+import 'temporal_context_builder.dart';
 
 class _PendingNotification {
   final int id;
@@ -220,11 +222,10 @@ class NotificationService {
     );
   }
 
-  /// Re-show ambient line from prefs (used by Workmanager isolate).
+  /// Rebuild ambient line from prefs (zero network) and update ongoing notification.
   Future<void> refreshAmbientFromPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
-    final line = prefs.getString('vyoma_ambient_line');
-    if (line == null || line.trim().isEmpty) return;
+    final line = await VyomaAmbientPrefs.buildAmbientLine();
+    if (line.trim().isEmpty) return;
     await showAmbientOngoing(line);
   }
 

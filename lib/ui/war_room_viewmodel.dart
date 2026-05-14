@@ -639,6 +639,27 @@ class WarRoomViewModel extends ChangeNotifier {
       'focus_intent': _focusSessionIntent,
       'focus_started_at': _focusSessionStartedAt?.toIso8601String(),
     });
+
+    var focusForAmbient = _currentMetrics.focusMinutes;
+    if (_focusSessionActive && _focusSessionStartedAt != null) {
+      focusForAmbient += DateTime.now()
+          .difference(_focusSessionStartedAt!)
+          .inMinutes;
+    }
+    final active = _focusSessionActive &&
+            (_focusSessionIntent?.trim().isNotEmpty ?? false)
+        ? _focusSessionIntent!.trim()
+        : null;
+    await VyomaAmbientPrefs.patchQuickAmbientState(
+      activeTask: active,
+      focusMinutesToday: focusForAmbient,
+    );
+    try {
+      final line = await VyomaAmbientPrefs.buildAmbientLine();
+      await _notificationService.showAmbientOngoing(line);
+    } catch (e) {
+      debugPrint('WarRoomViewModel: ambient refresh failed: $e');
+    }
   }
 
   Future<void> submitCommand(String text) async {
@@ -844,8 +865,9 @@ class WarRoomViewModel extends ChangeNotifier {
         calendarEventStrings: eventStrings,
         focusMinutesSession: focusForAmbient,
       );
-      await VyomaAmbientPrefs.write(ambientSnap);
-      await _notificationService.showAmbientOngoing(ambientSnap.ambientLine);
+      await VyomaAmbientPrefs.writeFromSnapshot(ambientSnap);
+      final ambientLine = await VyomaAmbientPrefs.buildAmbientLine();
+      await _notificationService.showAmbientOngoing(ambientLine);
 
       // 2. Consult General
       // Silent Uplink
@@ -909,7 +931,6 @@ class WarRoomViewModel extends ChangeNotifier {
         deviceTelemetry: telemetry,
         imageBytes: _selectedImageBytes,
         conversationTimeline: _conversationTimeline(limit: 20),
-        temporalContext: null, // sendMessage accepts String? — temporal context is built inside AIService
         friendActivitySummary: friendSummary,
         onToken: (token) {
           _streamingText += token;
@@ -2111,6 +2132,12 @@ class WarRoomViewModel extends ChangeNotifier {
     if (cmd != '/approve' && cmd != '/deny') return false;
 
     _addMessage("USER", text);
+    unawaited(
+      _aiService.memory.updateSegment(
+        'vyoma_last_user_message_at',
+        DateTime.now().toIso8601String(),
+      ),
+    );
 
     if (_pendingDecision != null) {
       if (cmd == '/deny') {

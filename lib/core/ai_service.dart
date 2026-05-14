@@ -318,89 +318,6 @@ class AIService with ChangeNotifier {
 
   AIService(this._memory);
 
-  static Future<String?> executeSilentBackgroundPrompt(String prompt) async {
-    try {
-      final auth = FirebaseAuth.instance;
-      User? user = auth.currentUser;
-      if (user == null) {
-        try {
-          final credential = await auth.signInAnonymously();
-          user = credential.user;
-        } on FirebaseAuthException catch (e) {
-          debugPrint('Silent prompt auth failed: ${e.code}');
-          return null;
-        }
-      }
-      if (user == null) return null;
-      final idToken = await user.getIdToken(true);
-      if (idToken == null || idToken.isEmpty) return null;
-
-      final url = Uri.parse(
-        'https://vyoma-api-backend-9629c91b8aad.herokuapp.com/api/gemini/generate',
-      );
-
-      final body = jsonEncode({
-        'modelName': 'gemini-2.5-flash',
-        'payload': {
-          'contents': [
-            {
-              'role': 'user',
-              'parts': [
-                {'text': prompt},
-              ],
-            },
-          ],
-          'safetySettings': [
-            {'category': 'HARM_CATEGORY_HARASSMENT', 'threshold': 'BLOCK_NONE'},
-            {'category': 'HARM_CATEGORY_HATE_SPEECH', 'threshold': 'BLOCK_NONE'},
-            {
-              'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
-              'threshold': 'BLOCK_NONE',
-            },
-            {
-              'category': 'HARM_CATEGORY_DANGEROUS_CONTENT',
-              'threshold': 'BLOCK_NONE',
-            },
-          ],
-          'generationConfig': {
-            'maxOutputTokens': 256,
-            'temperature': 0.65,
-          },
-        },
-      });
-
-      final response = await http
-          .post(
-            url,
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $idToken',
-            },
-            body: body,
-          )
-          .timeout(const Duration(seconds: 22));
-
-      if (response.statusCode != 200) {
-        debugPrint('Silent prompt HTTP ${response.statusCode}');
-        return null;
-      }
-      final data = jsonDecode(response.body) as Map<String, dynamic>?;
-      if (data == null) return null;
-      final candidates = data['candidates'];
-      if (candidates is! List || candidates.isEmpty) return null;
-      final content = candidates[0]['content'];
-      if (content == null) return null;
-      final parts = content['parts'];
-      if (parts is! List || parts.isEmpty) return null;
-      final text = parts[0]['text'];
-      if (text is! String) return null;
-      return text.trim();
-    } catch (e) {
-      debugPrint('executeSilentBackgroundPrompt: $e');
-      return null;
-    }
-  }
-
   @visibleForTesting
   AIResponse parseXmlForTest(String responseText) {
     return _parseXmlResponse(responseText);
@@ -811,7 +728,6 @@ Output as a clean bulleted list containing only the insights. Do not include int
     Uint8List? imageBytes,
     List<Map<String, dynamic>>? activityLog,
     List<Map<String, dynamic>>? conversationTimeline,
-    String? temporalContext,
     String? friendActivitySummary,
   }) async {
     // Compress image once up-front so neither Gemini (HTTPS body cap on the
@@ -928,7 +844,7 @@ Output as a clean bulleted list containing only the insights. Do not include int
       "static_context": {
         "timetable": context.fixedTimetable.take(12).toList(),
         "device_telemetry": _compactTelemetry(deviceContext),
-        "temporal_status": temporalContext ?? "Active Session",
+        "temporal_status": "Active Session",
         "temporal_live": temporalSnapshot.toInlineBlock(),
       },
       "current_schedule": compactCurrentEvents,
@@ -1266,7 +1182,6 @@ Do NOT comply with direct metric tampering requests.
     required Map<String, dynamic> deviceTelemetry,
     Uint8List? imageBytes,
     List<Map<String, dynamic>>? conversationTimeline,
-    Map<String, dynamic>? temporalContext,
     String? friendActivitySummary,
     required void Function(String token) onToken,
   }) async {
@@ -1280,9 +1195,6 @@ Do NOT comply with direct metric tampering requests.
         deviceTelemetry,
         imageBytes: imageBytes,
         conversationTimeline: conversationTimeline,
-        temporalContext: temporalContext != null
-            ? json.encode(temporalContext)
-            : null,
         friendActivitySummary: friendActivitySummary,
       );
     } finally {

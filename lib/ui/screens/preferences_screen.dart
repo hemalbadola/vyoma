@@ -75,7 +75,7 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
             _buildSyncCard(),
 
             const SizedBox(height: 32),
-            // Info — background ticks (Workmanager) are clock-driven; optional Gemini polish uses your session.
+            // Info — background ticks (Workmanager): templates only, no AI / no API.
             GlassCard(
               padding: const EdgeInsets.all(16),
               child: Row(
@@ -86,7 +86,8 @@ class _PreferencesScreenState extends State<PreferencesScreen> {
                   Expanded(
                     child: Text(
                       'Vyoma can wake on a schedule for deadline nudges and short post-class debriefs. '
-                      'An ongoing notification shows focus + next calendar anchor after you open chat with calendar sync.',
+                      'Copy rotates by the clock so it does not feel robotic. '
+                      'The ongoing notification is rebuilt from on-device prefs only.',
                       style: GoogleFonts.outfit(
                           color: Colors.white54, fontSize: 13, height: 1.5),
                     ),

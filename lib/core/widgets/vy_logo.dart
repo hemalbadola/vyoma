@@ -15,7 +15,7 @@ class VyMark extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Image.asset(
-      'assets/images/vyoma_logo_black.png',
+      'assets/images/vyoma_small_icon.png',
       width: size,
       height: size,
       fit: BoxFit.contain,
