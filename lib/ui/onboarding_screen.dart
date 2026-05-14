@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:vyoma/agent_debug_log.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -461,23 +460,6 @@ class _PermissionStepState extends State<_PermissionStep> {
   bool calendar = false;
   bool notifications = false;
 
-  Future<void> _debugLog({
-    required String hypothesisId,
-    required String location,
-    required String message,
-    Map<String, dynamic>? data,
-  }) async {
-    // #region agent log
-    await agentDebugNdjsonLog(
-      runId: 'pre-fix-2',
-      hypothesisId: hypothesisId,
-      location: location,
-      message: message,
-      data: data,
-    );
-    // #endregion
-  }
-
   @override
   void initState() {
     super.initState();
@@ -486,46 +468,26 @@ class _PermissionStepState extends State<_PermissionStep> {
   }
 
   Future<void> _requestNotifications() async {
-    await _debugLog(
-      hypothesisId: 'H7',
-      location: 'onboarding_screen.dart:_requestNotifications',
-      message: 'Notification permission tap',
-      data: {'platform': defaultTargetPlatform.name},
-    );
-    if (kIsWeb || defaultTargetPlatform == TargetPlatform.macOS || defaultTargetPlatform == TargetPlatform.windows || defaultTargetPlatform == TargetPlatform.linux) {
+    if (kIsWeb ||
+        defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux) {
       setState(() => notifications = true);
       return;
     }
+    await PermissionManager.requestAll();
     notifications = await PermissionManager.hasNotificationPermission();
     setState(() {});
   }
 
   Future<void> _requestCalendar() async {
     final calendarService = context.read<CalendarService>();
-    await _debugLog(
-      hypothesisId: 'H6',
-      location: 'onboarding_screen.dart:_requestCalendar',
-      message: 'Calendar permission tap',
-      data: {'behavior': 'calendar_oauth_attempt', 'calendarBefore': calendar},
-    );
     try {
       calendarService.clearInitCooldown();
       await calendarService.syncEvents(maxResults: 1);
       setState(() => calendar = true);
-      await _debugLog(
-        hypothesisId: 'H6',
-        location: 'onboarding_screen.dart:_requestCalendar',
-        message: 'Calendar oauth success',
-        data: {'calendarAfter': calendar},
-      );
     } catch (e) {
       setState(() => calendar = false);
-      await _debugLog(
-        hypothesisId: 'H6',
-        location: 'onboarding_screen.dart:_requestCalendar',
-        message: 'Calendar oauth failed',
-        data: {'error': e.toString()},
-      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Calendar connection failed: ${e.toString()}')),
@@ -561,10 +523,23 @@ class _PermissionStepState extends State<_PermissionStep> {
   }
 }
 
-class _SocialStep extends StatelessWidget {
+class _SocialStep extends StatefulWidget {
   const _SocialStep({required this.seed, required this.onNext});
   final _OnboardingSeed seed;
   final ValueChanged<_OnboardingSeed> onNext;
+
+  @override
+  State<_SocialStep> createState() => _SocialStepState();
+}
+
+class _SocialStepState extends State<_SocialStep> {
+  late String _socialMode;
+
+  @override
+  void initState() {
+    super.initState();
+    _socialMode = widget.seed.socialMode;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -572,13 +547,25 @@ class _SocialStep extends StatelessWidget {
       title: 'Step 7 of 8',
       prompt: 'Are you doing this with anyone?',
       body: [
-        _ChoiceChip(label: 'Invite a friend', selected: seed.socialMode == 'inviting', onTap: () => onNext(seed.copyWith(socialMode: 'inviting'))),
+        _ChoiceChip(
+          label: 'Invite a friend',
+          selected: _socialMode == 'inviting',
+          onTap: () => setState(() => _socialMode = 'inviting'),
+        ),
         const SizedBox(height: 8),
-        _ChoiceChip(label: 'Find by username', selected: seed.socialMode == 'searching', onTap: () => onNext(seed.copyWith(socialMode: 'searching'))),
+        _ChoiceChip(
+          label: 'Find by username',
+          selected: _socialMode == 'searching',
+          onTap: () => setState(() => _socialMode = 'searching'),
+        ),
         const SizedBox(height: 8),
-        _ChoiceChip(label: 'Just me for now', selected: seed.socialMode == 'solo', onTap: () => onNext(seed.copyWith(socialMode: 'solo'))),
+        _ChoiceChip(
+          label: 'Just me for now',
+          selected: _socialMode == 'solo',
+          onTap: () => setState(() => _socialMode = 'solo'),
+        ),
       ],
-      onNext: () => onNext(seed),
+      onNext: () => widget.onNext(widget.seed.copyWith(socialMode: _socialMode)),
       onSkip: null,
     );
   }

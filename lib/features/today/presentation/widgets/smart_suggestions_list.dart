@@ -30,10 +30,12 @@ class SmartSuggestionsList extends StatelessWidget {
     final suggestions = <SmartSuggestion>[];
 
     if (journalStreak == 0 && !todayStats.journaled) {
+      // ZWNJ avoids macOS spell-check gold underlines on the compound "journal streak".
+      const journalStreakTitle = 'Start a journal\u200C streak';
       suggestions.add(
         SmartSuggestion(
           icon: Icons.edit_note_outlined,
-          title: 'Start a journal streak',
+          title: journalStreakTitle,
           subtitle: 'One line today is enough.',
           onTap: onOpenVaultOneLine,
         ),

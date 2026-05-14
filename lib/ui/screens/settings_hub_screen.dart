@@ -1,4 +1,3 @@
-import 'package:vyoma/agent_debug_log.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +7,7 @@ import '../../core/auth_manager.dart';
 import '../../core/user_service.dart';
 import '../../core/telemetry_service.dart';
 import '../../core/ai_service.dart';
+import '../../core/calendar_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../widgets/glass_card.dart';
 import '../onboarding_screen.dart';
@@ -22,23 +22,6 @@ class SettingsHubScreen extends StatefulWidget {
 }
 
 class _SettingsHubScreenState extends State<SettingsHubScreen> {
-  Future<void> _debugLog({
-    required String hypothesisId,
-    required String location,
-    required String message,
-    Map<String, dynamic>? data,
-  }) async {
-    // #region agent log
-    await agentDebugNdjsonLog(
-      runId: 'pre-fix-1',
-      hypothesisId: hypothesisId,
-      location: location,
-      message: message,
-      data: data,
-    );
-    // #endregion
-  }
-
   Future<void> _resetOnboarding() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('onboarding_complete');
@@ -47,12 +30,6 @@ class _SettingsHubScreenState extends State<SettingsHubScreen> {
     await prefs.remove('calendar_permission_granted');
     await prefs.remove('notification_permission_granted');
     await prefs.remove('social_mode');
-    await _debugLog(
-      hypothesisId: 'H4',
-      location: 'settings_hub_screen.dart:_resetOnboarding',
-      message: 'Onboarding reset keys removed',
-      data: {'onboarding_complete_after': prefs.getBool('onboarding_complete')},
-    );
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const OnboardingScreen()),
@@ -62,27 +39,10 @@ class _SettingsHubScreenState extends State<SettingsHubScreen> {
 
   Future<void> _ensureAuth() async {
     final auth = FirebaseAuth.instance;
-    await _debugLog(
-      hypothesisId: 'H3',
-      location: 'settings_hub_screen.dart:_ensureAuth',
-      message: 'Ensure auth triggered',
-      data: {'hasCurrentUser': auth.currentUser != null},
-    );
     if (auth.currentUser == null) {
       try {
         await auth.signInAnonymously();
-        await _debugLog(
-          hypothesisId: 'H3',
-          location: 'settings_hub_screen.dart:_ensureAuth',
-          message: 'Anonymous sign-in success',
-        );
       } catch (e) {
-        await _debugLog(
-          hypothesisId: 'H3',
-          location: 'settings_hub_screen.dart:_ensureAuth',
-          message: 'Anonymous sign-in failed',
-          data: {'error': e.toString()},
-        );
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -93,17 +53,28 @@ class _SettingsHubScreenState extends State<SettingsHubScreen> {
     }
   }
 
+  Future<void> _reconnectGoogleCalendar() async {
+    final calendarService = context.read<CalendarService>();
+    try {
+      calendarService.clearInitCooldown();
+      await calendarService.syncEvents(maxResults: 1);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Google Calendar connected.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Calendar connection failed: $e')),
+      );
+    }
+  }
+
   /// Full sign-out: calendar/Google session via [AuthManager], then Firebase.
   /// Uses [GlassCard.onTap] for the tile — wrapping GlassCard in InkWell breaks
   /// taps because GlassCard's inner GestureDetector wins without invoking Firebase.
   Future<void> _performSignOut() async {
     final authManager = context.read<AuthManager>();
-    await _debugLog(
-      hypothesisId: 'H3',
-      location: 'settings_hub_screen.dart:_performSignOut',
-      message: 'Sign out started',
-      data: {'hasUser': FirebaseAuth.instance.currentUser != null},
-    );
     try {
       await authManager.signOut();
     } catch (e) {
@@ -156,9 +127,14 @@ class _SettingsHubScreenState extends State<SettingsHubScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      'You can recover from here: sign in locally or restart onboarding from the beginning.',
-                      style: TextStyle(color: Colors.white70),
+                    Text(
+                      'Sign In (Local) creates an anonymous Firebase session only—it does not attach Google Calendar. '
+                      'After signing in, use Reconnect Google Calendar, or use Restart Onboarding for a full setup.',
+                      style: GoogleFonts.outfit(
+                        color: Colors.white60,
+                        fontSize: 13,
+                        height: 1.45,
+                      ),
                     ),
                     const SizedBox(height: 14),
                     Wrap(
@@ -168,6 +144,10 @@ class _SettingsHubScreenState extends State<SettingsHubScreen> {
                         ElevatedButton(
                           onPressed: _ensureAuth,
                           child: const Text('Sign In (Local)'),
+                        ),
+                        ElevatedButton(
+                          onPressed: _reconnectGoogleCalendar,
+                          child: const Text('Reconnect Google Calendar'),
                         ),
                         ElevatedButton(
                           onPressed: _resetOnboarding,
@@ -415,15 +395,28 @@ class _SettingsHubScreenState extends State<SettingsHubScreen> {
       child: Column(
         children: toggles.entries.map((e) {
           return CheckboxListTile(
-            title: Text(e.key.toUpperCase(), style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold)),
+            title: Text(
+              e.key.toUpperCase(),
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             value: e.value,
-            onChanged: (v) {
-              if (v != null) {
-                ai.memory.toggleSegment(e.key, v);
-                setState(() {});
-              }
+            onChanged: (v) async {
+              if (v == null) return;
+              await ai.memory.toggleSegment(e.key, v);
+              if (mounted) setState(() {});
             },
-            activeColor: const Color(0xFF7C3AED),
+            checkColor: AppColors.background,
+            fillColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.selected)) {
+                return AppColors.gold;
+              }
+              return Colors.transparent;
+            }),
+            side: const BorderSide(color: AppColors.goldDim),
             dense: true,
           );
         }).toList(),

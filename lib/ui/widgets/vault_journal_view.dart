@@ -404,12 +404,18 @@ class _VaultJournalViewState extends State<VaultJournalView> {
                                     controller: _journalController,
                                     focusNode: _focusNode,
                                     maxLines: 2,
+                                    autocorrect: false,
+                                    enableSuggestions: false,
+                                    smartDashesType: SmartDashesType.disabled,
+                                    smartQuotesType: SmartQuotesType.disabled,
+                                    spellCheckConfiguration:
+                                        const SpellCheckConfiguration.disabled(),
                                     style: VyText.bodyLarge,
                                     decoration: InputDecoration(
                                       hintText:
                                           'One line that captures your day...',
                                       hintStyle: VyText.bodyMedium.copyWith(
-                                        color: AppColors.textMuted,
+                                        color: VyColors.textMuted,
                                       ),
                                     ),
                                   ),

@@ -137,7 +137,7 @@ class IdentityAnchorStrip extends StatelessWidget {
                       height: 1.4,
                       color: hasAnchor
                           ? AppColors.textPrimary
-                          : AppColors.textMuted,
+                          : AppColors.textSecondary,
                     ),
                   ),
                 ],
