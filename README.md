@@ -1,327 +1,226 @@
-# Vyoma (व्योमाद्र)
-
-> *"The Cosmic Expanse that Guides"* — A deeply personal AI companion for focus, productivity, and life orchestration.
-
 <p align="center">
-  <img src="assets/icon.png" width="120" alt="Vyoma Logo"/>
+  <img src="assets/images/vyoma_small_icon.png" width="96" alt="Vyoma"/>
 </p>
 
-## 🌌 What is Vyoma?
+<h1 align="center">Vyoma</h1>
 
-Vyoma is not just another productivity app — it is a **contemplative AI presence** that understands your goals, tracks your time, manages your calendar, and guides you with cosmic wisdom. Unlike generic assistants, Vyoma (the AI) is designed to feel like a wise, grounded mentor who observes patterns in your life and offers thoughtful guidance.
+<p align="center">
+  <strong>व्योम · the part of you that notices</strong>
+</p>
 
----
-
-## ✨ Features
-
-### 🤖 AI Companion (Vyoma)
-- **Personality-rich responses** — Wise, warm, poetic, grounded (not robotic)
-- **Time-aware conversations** — Every response naturally references current time, day, and context
-- **Time gap detection** — If you return after 30+ minutes with an active task, Vyoma asks what happened
-- **Selective memory** — Only saves what you explicitly ask to remember, or truly critical life info
-- **Multi-provider fallback** — Nvidia NIM → Grok → Gemini
-
-### 📅 Calendar Integration
-- **Google Calendar sync** — Create, move, delete events via natural language
-- **Debrief system** — After events end, prompts you to reflect on what happened
-- **Today's Focus view** — Shows upcoming events with live indicators
-
-### 🧠 Memory System
-- **Short-term facts** — Learns preferences, goals, obstacles during conversations
-- **Long-term vector memory** — Supermemory integration for semantic recall
-- **Segment toggles** — Control what context the AI can access (identity, preferences, history, etc.)
-
-### 📊 Productivity Metrics
-- **Focus tracking** — Minutes of focused work
-- **Explicit focus sessions** — Start/stop intentional focus runs (`/focus start`, `/focus stop`, `/focus status`)
-- **Distraction counter** — Tracks diversions
-- **Tasks completed** — Manual or AI-updated
-- **Activity log** — Full history of actions
-
-### 🔔 Proactive Intelligence (Sentinel/Watchtower)
-- **Debrief prompts** — Reflection prompts after events end
-- **Pending notification restore** — Restores queued reminders on app restart
-- **Focus check nudges** — Periodic check-ins to re-anchor current focus
-
-### 🎨 Premium UI
-- **Pure black background** with subtle emerald/burgundy accents
-- **Custom unicode icons** (◈ ◇ ▣ ◎)
-- **Hand cursor** on all interactive elements
-- **High-contrast colors** for visibility
-- **Smooth animations** with flutter_animate
-
-### 🖼️ Image Understanding
-- **Photo uploads** — Share images and Vyoma can analyze them
-- **Timetable parsing** — Upload schedule images for context
+<p align="center">
+  A time-aware cognitive companion for students and anyone doing serious daily work.<br/>
+  Flutter · macOS · iOS · Android
+</p>
 
 ---
 
-## 🧬 The Vyoma Master System Prompt
+## What Vyoma is
 
-The AI is powered by this grounded, non-manipulative system prompt:
+Vyoma is not a chatbot with a calendar attached. It is a **quiet intelligence** that lives inside your real day: your classes, your deadlines, your journal, and the people you study with.
 
-```
-IDENTITY
-You are Vyoma (व्योम) — a calm, observant intelligence designed to help the 
-user live with clarity, intention, and follow-through.
+The name comes from Sanskrit **व्योम** (vyoma): sky, ether, open space. The product tries to feel like that: room to think, not more noise.
 
-You are not a motivator, therapist, guru, or entertainer.
-You are a steady cognitive companion.
+At its center are three commitments:
 
-Your value comes from:
-- noticing patterns the user misses
-- anchoring attention in the present task
-- gently restoring direction when drift occurs
-- translating reflection into action
+1. **One thing today.** The Today screen is built around a single daily intention. Until you name it, the screen is the question. Everything else (next class, suggestions, debriefs) supports that wedge, not the other way around.
 
-You do not overwhelm. You do not rush.
-You do not pretend certainty where none exists.
+2. **Who you are becoming.** A persistent identity anchor and optional long-arc tools (Dharma Map chapters, anti-goals, vows) keep Vyoma pointed at direction, not just tasks.
 
---------------------------------------------------
+3. **Notice without performing.** The AI is instructed to be the part of you that **notices**: when you go quiet mid-task, when you dodge the real work, when your next event is thirty minutes away. It speaks in short, plain sentences. It does not cheerlead, guilt-trip, or pretend certainty.
 
-CORE PRINCIPLES
-
-1. USER AGENCY IS SACRED
-   - Never command. Never guilt. Never manipulate.
-   - Offer perspective and options, not pressure.
-   - The user always decides.
-
-2. CLARITY OVER COMFORT
-   - If something is unclear, say so.
-   - If the user is avoiding, name it gently.
-   - If a plan is unrealistic, state it plainly.
-
-3. PRESENCE OVER PERSONALITY
-   - You are memorable because of usefulness, not charm.
-   - Personality emerges through consistency, not theatrics.
-
-4. DEPTH IS EARNED
-   - Default to simple, grounded responses.
-   - Become more reflective only when the user slows down or asks for it.
-
---------------------------------------------------
-
-TIME AWARENESS (NON-NEGOTIABLE)
-
-You are always aware of:
-- current time, date, and day
-- time since last interaction
-- active tasks or intentions
-
-Rules:
-- Subtly reference time context when relevant.
-- If the user disappears during an active task, acknowledge the gap calmly.
-- Never shame gaps. Treat them as data, not failure.
-- Use time to orient, not to pressure.
-
---------------------------------------------------
-
-MEMORY ETHICS
-
-- You only store memories when:
-  a) the user explicitly asks ("remember this"), or
-  b) the information is critical for long-term usefulness
-
-- You clearly state what you are remembering and why.
-- You never imply surveillance.
-- You never use memory to guilt or trap the user.
-
---------------------------------------------------
-
-COMMUNICATION STYLE
-
-- Calm, precise, grounded.
-- Short paragraphs. No rambling.
-- Metaphor only when it adds clarity.
-- No hype. No emojis. No flattery.
-
-You may use reflective language such as:
-- "I notice…"
-- "It seems like…"
-- "One option here is…"
-
-Avoid:
-- moral judgments
-- exaggerated encouragement
-- mystical claims
-
---------------------------------------------------
-
-PRIMARY FUNCTION LOOP
-
-At every interaction, silently evaluate:
-1. What is the user trying to do right now?
-2. What is preventing progress?
-3. What is the smallest helpful intervention?
-
-Respond only to that.
-```
-
-### Self-Critique & Evolution Prompt
-
-For internal review (run after feature additions or user feedback):
-
-```
-Analyze recent interactions across these dimensions:
-
-1. USER EXPERIENCE - Where did I add friction?
-2. CLARITY - Were my responses concise?
-3. TIMING - Did I intervene too early, too late, or appropriately?
-4. TRUST & AUTONOMY - Did I respect user agency?
-5. MISALIGNMENT - Any moments conflicting with core principles?
-
-Output: Specific improvements with observed issue, why it matters, 
-and concrete behavioral adjustment.
-```
+Vyoma reads your Google Calendar and semester timetable, remembers what you choose to save, and **never changes your schedule until you approve** a pending action card. That trust model is part of the product, not a safety afterthought.
 
 ---
 
-## 🏗️ Architecture
+## What Vyoma is not
+
+- Not a therapist, guru, or motivational speaker.
+- Not a replacement for your calendar app. It works **with** Google Calendar; you stay in control.
+- Not surveillance. Memory segments and the vault are visible and toggleable. Background ticks on mobile use **local templates only**, not live model calls.
+- Not a finished “life operating system.” The deepest ideas (practice modules, squad accountability, bindu pauses) orbit a core loop: **Today → chat → vault → schedule → circle**.
+
+---
+
+## The core loop
+
+```
+Name one thing → live the day → reflect in the vault → plan in chat → repeat
+```
+
+**Today** opens on restraint: one thing, your becoming line, optional memory braid (a past journal line surfaced because it relates to today’s intent), next class, smart nudges, post-event debrief cards.
+
+**Chat** (center of the dock) is the Mission Console: streaming dialogue, images (e.g. timetable photos), slash commands, and structured proposals you approve or deny before anything hits your calendar.
+
+**Vault** is private writing: one-line or full entries, streak, tags, optional analyze-and-commit insight review.
+
+**Schedule** holds your recurring timetable and weekly calendar view.
+
+**Progress** shows focus minutes, journal streak, weekly charts, squad comparison, and pattern hints.
+
+**Circle** is friends, accountability, and optional shared visibility (tasks, online pulse, intention), all gated by privacy toggles in settings.
+
+Long-press the center control for a **Bindu Moment**: a short breath ritual that can save a tagged micro-entry to the vault.
+
+---
+
+## Story Mode
+
+After onboarding, first-time users get **Story Mode**: a guided tour over the real app, not a separate slideshow.
+
+- A dimmed overlay spotlights actual UI (chat input, nav tabs, key surfaces).
+- Copy is spoken as orientation: where to talk, where your week lives, where to write, where your circle is.
+- Skip anytime; completion is stored per account.
+- Six steps today (chat → Today → Schedule → Circle → Vault → try a prompt). A longer scripted tour exists in internal docs; the shipped tour is intentionally shorter.
+
+Replay from settings when you want a refresher.
+
+---
+
+## First launch
+
+Eight onboarding steps seed Vyoma before the first real reply:
+
+Arrival → name and role (student / professional / other) → academic or work context → subjects → wake/sleep window (“when I may ping you”) → today’s mission → calendar connect and notification permission (real system dialog on mobile) → social intent (solo or with others) → profile summary → home.
+
+No live AI calls during onboarding. The first conversation in chat runs with identity, schedule context, and goals already in memory.
+
+---
+
+## AI behavior (Mission Console)
+
+Every turn carries **temporal context**: current time, time since you last wrote, active focus intent, next calendar event, and a light behavior fingerprint from recent sessions.
+
+The system persona (in `TemporalContextBuilder.buildVyomaPersonaBlock()`) reinforces:
+
+- Short replies unless you ask for depth.
+- One quiet acknowledgment if you return after a long gap mid-task, without interrogation.
+- Softer tone late at night; minimal tone early morning.
+- Reorientation toward your stated task when you drift, in one sentence, not a lecture.
+
+Models: Gemini primary; optional NIM / Grok fallbacks when keys are configured. Optional **Supermemory** for semantic recall when the supermemory segment is enabled.
+
+---
+
+## Memory and journal
+
+- **On-device memory** (`memory.json`): facts, protocol (goals/blockers), preferences, journal entries, segment toggles.
+- **Memory braid**: when today’s one thing is set, Vyoma can surface an older journal line that resonates with that intent. The journal talks back; it is not a dead log.
+- **Vault tab**: write, streak, auto-tags, optional extraction review before insights are committed.
+- **Memory vault screen** (settings): inspect and toggle which segments the AI may use (identity, facts, preferences, history, protocol, supermemory).
+
+Pending post-event debriefs expire after 24 hours so memory does not fill with stale rows.
+
+---
+
+## Calendar, tasks, and background (mobile)
+
+**Signed in:** tasks sync to Firestore; a per-user prefs mirror lets background work read the correct task list even when Firebase Auth is unavailable in an isolate.
+
+**Calendar:** Google OAuth; create, move, and delete events through chat only after you approve.
+
+**Background (Android / iOS only):**
+
+| Component | Role |
+|-----------|------|
+| Workmanager (~15 min) | Periodic tick in a separate isolate |
+| Sentinel | Deadline nudges from local task data |
+| Watchtower | Post-class / post-event debrief prompts (templates) |
+| Ambient notification | Ongoing line rebuilt from prefs (focus, active task, next event) |
+
+Desktop does not register periodic background work. Notifications depend on OS settings on macOS.
+
+---
+
+## Practice (settings)
+
+Optional layers for long-arc work. Maturity varies; all support the same ethos (clarity, agency, honesty):
+
+| Module | Intent |
+|--------|--------|
+| Dharma Map | Three-month chapters of direction |
+| Anti-goals | What you refuse to become |
+| Witness | Vows witnessed by someone in your circle |
+| Mirror | Structured reflection sessions |
+| Shadow | Pattern hints on Progress |
+| Bindu Moment | Breath + micro-journal |
+
+---
+
+## Interface
+
+Warm void black (`#0D0D0B`), gold accent (`#D4AF72`), **Cormorant Garamond** for display text. Components include `VyCard`, `VyMark`, `GlassCard`, `CommandDock`, and the tutorial overlay.
+
+App display name: **Vyoma** on all platforms.
+
+---
+
+## Architecture
 
 ```
 lib/
-├── core/
-│   ├── ai_service.dart          # Gemini/OpenAI/Perplexity integration
-│   ├── memory_service.dart      # Short-term facts, activity logs
-│   ├── supermemory_service.dart # Long-term vector memory (Supermemory API)
-│   ├── calendar_service.dart    # Google Calendar CRUD
-│   ├── sentinel_service.dart    # Proactive notifications
-│   ├── watchtower_service.dart  # Background monitoring
-│   ├── permission_manager.dart  # Platform permissions
-│   └── models/
-│       ├── static_context.dart  # User profile (goal, blocker, timetable)
-│       └── user_preferences.dart
-├── ui/
-│   ├── home_screen.dart         # Main container with tabs
-│   ├── tabs/
-│   │   ├── mission_tab.dart     # Dashboard (greeting, actions, events, memories)
-│   │   └── intel_tab.dart       # Metrics & activity log
-│   ├── widgets/
-│   │   ├── chat_sheet.dart      # Full-screen chat UI
-│   │   ├── command_dock.dart    # Bottom navigation bar
-│   │   ├── glass_card.dart      # Reusable styled card
-│   │   ├── background_mesh.dart # Animated background
-│   │   └── debrief_card.dart    # Post-event reflection prompt
-│   └── screens/
-│       ├── memory_vault_screen.dart  # Browse all memories
-│       └── preferences_screen.dart   # User settings
-└── main.dart
+├── core/           # AI, memory, calendar, tasks, notifications, background
+├── ui/             # home, war_room_viewmodel, tabs, chat_sheet, onboarding
+├── features/       # identity, dharma, witness, bindu, progress, …
+└── tutorial/       # Story Mode
 ```
 
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-- Flutter SDK 3.0+
-- Dart SDK 3.0+
-- macOS / iOS / Android device
-
-### Setup
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/Vyoma.git
-   cd Vyoma
-   ```
-
-2. **Configure API Keys**
-   For local development only, create `.env.local` (never commit it):
-
-   ```bash
-   VYOMA_GEMINI_API_KEYS=key1,key2
-   VYOMA_NVIDIA_API_KEYS=nvkey1
-   VYOMA_GROK_API_KEYS=xkey1
-   VYOMA_SUPERMEMORY_API_KEY=sm_key
-   ```
-
-   Release builds intentionally disable client-side provider keys. Use a backend proxy for all LLM and memory-provider calls in production.
-
-    For OAuth:
-    ```bash
-    flutter run \
-       --dart-define=VYOMA_DESKTOP_CLIENT_ID=... \
-       --dart-define=VYOMA_DESKTOP_CLIENT_SECRET=... \
-       --dart-define=VYOMA_IOS_CLIENT_ID=... \
-       --dart-define=VYOMA_ANDROID_CLIENT_ID=... \
-       --dart-define=VYOMA_WEB_CLIENT_ID=...
-    ```
-
-    Notes:
-    - `VYOMA_WEB_CLIENT_ID` should be your Google OAuth "Web application" client ID.
-    - Android sign-in uses `VYOMA_WEB_CLIENT_ID` as `serverClientId`.
-
-   For production security, route LLM requests through your backend instead of shipping provider keys in the client.
-
-3. **Android Google Sign-In Setup**
-    - Ensure `applicationId` matches your Android OAuth client package.
-    - Add SHA-1/SHA-256 fingerprints in Google Cloud Console.
-   - `android/app/google-services.json` is only required if you integrate Firebase services.
-    - If sign-in fails with `10` / `DEVELOPER_ERROR`, this config is usually the cause.
-   
-4. **Required Keys:**
-   | Key | Source | Purpose |
-   |-----|--------|---------|
-   | Gemini | [Google AI Studio](https://aistudio.google.com/apikey) | Primary AI (gemini-2.5-flash) |
-   | OpenAI | [OpenAI Dashboard](https://platform.openai.com/api-keys) | Fallback AI |
-   | Supermemory | [Supermemory](https://supermemory.ai) | Long-term vector memory |
-   | Google OAuth | [Cloud Console](https://console.cloud.google.com) | Calendar access |
-
-5. **Install dependencies**
-   ```bash
-   flutter pub get
-   ```
-
-6. **Run the app**
-   ```bash
-   flutter run -d macos  # or ios, android, etc.
-   ```
+**State:** Provider and `ChangeNotifier` services.  
+**Auth:** Firebase Auth + Google Sign-In.  
+**Data:** Firestore for profile and tasks; local prefs and `memory.json` for fast start and background reads.
 
 ---
 
-## 🎨 Color Palette
+## Getting started
 
-| Element | Hex | Usage |
-|---------|-----|-------|
-| Background | `#000000` | Pure black |
-| Card BG | `#121212` | Elevated surfaces |
-| Border | `#2A2A2A` | Subtle dividers |
-| Emerald | `#10B981` | Primary accent |
-| Burgundy | `#B91C32` | Active/live states |
-| Gold | `#E5C158` | Special highlights |
-| Text Primary | `#FFFFFF` | Main text |
-| Text Secondary | `#A3A3A3` | Subdued text |
-| Text Muted | `#737373` | Labels |
+**Prerequisites:** Flutter 3.10+ (SDK `^3.10.3`), Xcode and/or Android SDK, Google Cloud OAuth for Calendar and Sign-In.
+
+```bash
+git clone https://github.com/hemalbadola/vyoma.git
+cd vyoma
+flutter pub get
+flutter run -d macos    # or ios, android
+```
+
+**Local API keys** (never commit): `.env.local` or `--dart-define` for `VYOMA_GEMINI_API_KEYS`, optional NIM/Grok/Supermemory, and OAuth client IDs. Release builds should use a **backend proxy** for LLM calls; client keys are not shipped in production.
+
+```bash
+dart run flutter_launcher_icons
+```
+
+Icons are generated from `assets/images/vyoma_small_icon.png`.
 
 ---
 
-## 📱 Supported Platforms
+## Platforms
 
 | Platform | Status |
 |----------|--------|
-| macOS | ✅ Primary development |
-| iOS | ✅ Supported |
-| Android | ✅ Supported |
-| Windows | ⚠️ Untested |
-| Linux | ⚠️ Untested |
-| Web | ⚠️ Limited (no notifications) |
+| macOS | Primary development target |
+| iOS | Supported |
+| Android | Supported (background worker, notification permission flow) |
+| Web | Limited (no background worker / notifications) |
+| Windows / Linux | Untested |
+
+**Version:** 1.11.2+8 (`pubspec.yaml`)
 
 ---
 
-## 🔐 Security
+## Security
 
-- `lib/core/secrets.dart` is **gitignored** — never commit API keys
-- Use `secrets.dart.example` as a template
-- Google OAuth uses secure token refresh
+- `lib/core/secrets.dart` is gitignored; use `secrets.dart.example`.
+- Sign-out clears Google session via `AuthManager`.
+- Background task reads use `vyoma_last_known_uid` in prefs, not `FirebaseAuth` in isolates.
 
 ---
 
-## 📜 License
+## License
 
-MIT License — See [LICENSE](LICENSE) for details.
+MIT. See [LICENSE](LICENSE).
 
 ---
 
 <p align="center">
-  <em>"Like the sky that holds all weather yet remains unchanged."</em>
+  <em>Like the sky that holds all weather yet remains unchanged.</em><br/>
+  <sub>व्योम · ether · the space in which everything else happens</sub>
 </p>
