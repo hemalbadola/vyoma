@@ -1,0 +1,639 @@
+/* ── Typography ─────────────────────────────────────────────────── */
+.font-cormorant {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-variant-ligatures: none;
+  font-feature-settings: 'liga' 0;
+}
+
+.act-label {
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(201, 168, 76, 0.4);
+  margin-bottom: 1rem;
+}
+
+/* ── Navbar ─────────────────────────────────────────────────────── */
+.vyoma-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 150;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.5rem;
+  background: rgba(8, 8, 8, 0.7);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(201, 168, 76, 0.15);
+}
+
+.vyoma-nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.vyoma-nav-mark {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.vyoma-nav-wordmark {
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  color: rgba(245, 230, 200, 0.92);
+}
+
+.vyoma-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.vyoma-nav-cta-ghost {
+  padding: 0.45rem 1rem;
+  border: 1px solid rgba(201, 168, 76, 0.45);
+  border-radius: 2px;
+  background: transparent;
+  color: rgba(232, 211, 168, 0.95);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, color 0.3s ease;
+}
+
+.vyoma-nav-cta-ghost:hover {
+  border-color: rgba(201, 168, 76, 0.85);
+  box-shadow: 0 0 14px rgba(201, 168, 76, 0.12);
+  color: #fff8e7;
+}
+
+.vyoma-nav-signin {
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(232, 211, 168, 0.65);
+  text-decoration: none;
+  transition: color 0.3s ease;
+}
+
+.vyoma-nav-signin:hover {
+  color: rgba(232, 211, 168, 0.95);
+}
+
+/* ── Scroll progress ────────────────────────────────────────────── */
+.vyoma-scroll-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  z-index: 200;
+  pointer-events: none;
+}
+
+.vyoma-scroll-bar__fill {
+  height: 100%;
+  background: #c9a84c;
+  width: 0;
+  transition: width 0.15s ease-out;
+}
+
+/* ── Pillar cards ───────────────────────────────────────────────── */
+.pillar-card {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  min-height: 280px;
+}
+
+.pillar-card__canvas {
+  flex: 0 0 45%;
+  min-height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid rgba(201, 168, 76, 0.08);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.pillar-card__copy {
+  flex: 1 1 55%;
+  padding: 1.5rem 2rem 2rem;
+}
+
+.pillar-canvas {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+/* Sentinel */
+.sentinel-svg {
+  width: 100px;
+  height: 100px;
+}
+
+.sentinel-track {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.08);
+  stroke-width: 3;
+}
+
+.sentinel-arc {
+  fill: none;
+  stroke: #c9a84c;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  transform: rotate(-90deg);
+  transform-origin: center;
+  animation: sentinelArc 4s ease-in-out infinite;
+}
+
+.sentinel-pulse {
+  fill: #c9a84c;
+  opacity: 0;
+  animation: sentinelPulse 4s ease-in-out infinite;
+}
+
+.sentinel-task-label {
+  margin-top: 0.75rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: rgba(148, 163, 184, 0.9);
+  animation: sentinelLabelGlow 4s ease-in-out infinite;
+}
+
+@keyframes sentinelArc {
+  0% {
+    stroke-dashoffset: 1;
+  }
+  70% {
+    stroke-dashoffset: 0.2;
+  }
+  78% {
+    stroke-dashoffset: 0.2;
+    filter: drop-shadow(0 0 6px rgba(201, 168, 76, 0.8));
+  }
+  88% {
+    stroke-dashoffset: 1;
+  }
+  100% {
+    stroke-dashoffset: 1;
+  }
+}
+
+@keyframes sentinelPulse {
+  0%,
+  72% {
+    opacity: 0;
+    r: 4;
+  }
+  78% {
+    opacity: 0.9;
+    r: 10;
+  }
+  88% {
+    opacity: 0;
+    r: 14;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes sentinelLabelGlow {
+  0%,
+  74% {
+    color: rgba(148, 163, 184, 0.9);
+    text-shadow: none;
+  }
+  78%,
+  84% {
+    color: #e8d3a8;
+    text-shadow: 0 0 12px rgba(201, 168, 76, 0.7);
+  }
+  90%,
+  100% {
+    color: rgba(148, 163, 184, 0.9);
+    text-shadow: none;
+  }
+}
+
+/* Calendar Mind */
+.calendar-day {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(220px, 90%);
+}
+
+.calendar-block {
+  display: block;
+  height: 14px;
+  border-radius: 2px;
+  background: rgba(100, 116, 139, 0.45);
+  position: relative;
+  overflow: hidden;
+}
+
+.calendar-block--gap {
+  background: rgba(100, 116, 139, 0.2);
+}
+
+.calendar-focus-block {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, rgba(201, 168, 76, 0.3), #c9a84c);
+  border-radius: 2px;
+}
+
+.calendar-block--wrong {
+  animation: calendarWrongGap 5s ease-in-out infinite;
+}
+
+.calendar-block--right {
+  animation: calendarRightGap 5s ease-in-out infinite;
+}
+
+.calendar-focus-block {
+  animation: calendarFocusSlide 5s ease-in-out infinite;
+}
+
+@keyframes calendarWrongGap {
+  0%,
+  25% {
+    opacity: 1;
+  }
+  35%,
+  70% {
+    opacity: 0.25;
+  }
+  85%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes calendarRightGap {
+  0%,
+  30% {
+    background: rgba(100, 116, 139, 0.2);
+    box-shadow: none;
+  }
+  40%,
+  65% {
+    background: rgba(201, 168, 76, 0.35);
+    box-shadow: 0 0 12px rgba(201, 168, 76, 0.35);
+  }
+  80%,
+  100% {
+    background: rgba(100, 116, 139, 0.2);
+    box-shadow: none;
+  }
+}
+
+@keyframes calendarFocusSlide {
+  0%,
+  38% {
+    width: 0;
+    left: -100%;
+  }
+  48%,
+  62% {
+    width: 100%;
+    left: 0;
+  }
+  72%,
+  100% {
+    width: 0;
+    left: 100%;
+  }
+}
+
+/* Ambient Layer */
+.ambient-bar {
+  width: min(280px, 92%);
+  padding: 0.55rem 0.85rem;
+  border-radius: 4px;
+  background: rgba(12, 12, 12, 0.85);
+  border: 1px solid rgba(201, 168, 76, 0.2);
+  box-shadow: 0 0 20px rgba(201, 168, 76, 0.08);
+  overflow: hidden;
+  height: 2.2rem;
+}
+
+.ambient-text-stack {
+  display: flex;
+  flex-direction: column;
+  animation: ambientCycle 6s ease-in-out infinite;
+}
+
+.ambient-line {
+  height: 2.2rem;
+  display: flex;
+  align-items: center;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: rgba(226, 232, 240, 0.88);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@keyframes ambientCycle {
+  0%,
+  28% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  33% {
+    transform: translateY(-2.2rem);
+    opacity: 0.6;
+  }
+  38%,
+  61% {
+    transform: translateY(-2.2rem);
+    opacity: 1;
+  }
+  66% {
+    transform: translateY(-4.4rem);
+    opacity: 0.6;
+  }
+  71%,
+  94% {
+    transform: translateY(-4.4rem);
+    opacity: 1;
+  }
+  99% {
+    transform: translateY(-6.6rem);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* ── Pricing ────────────────────────────────────────────────────── */
+.pricing-card {
+  position: relative;
+  transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.45s ease;
+}
+
+.pricing-card:hover {
+  transform: translateY(-6px) scale(1.02);
+}
+
+.pricing-card__orbit {
+  position: absolute;
+  inset: -1px;
+  border-radius: 2px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.pricing-card:hover .pricing-card__orbit {
+  opacity: 1;
+}
+
+.pricing-card__orbit::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: conic-gradient(from 0deg, transparent, rgba(201, 168, 76, 0.35), transparent);
+  animation: pricingOrbit 3s linear infinite;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  padding: 1px;
+}
+
+@keyframes pricingOrbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.vyoma-btn-gold {
+  display: inline-block;
+  margin-top: auto;
+  padding: 0.55rem 1.25rem;
+  border: 1px solid rgba(201, 168, 76, 0.5);
+  border-radius: 2px;
+  background: transparent;
+  color: rgba(232, 211, 168, 0.95);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 0.35s ease, box-shadow 0.35s ease, color 0.35s ease, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.vyoma-btn-gold:hover {
+  border-color: rgba(201, 168, 76, 0.9);
+  box-shadow: 0 0 16px rgba(201, 168, 76, 0.18);
+  color: #fff8e7;
+  transform: translateY(-1px);
+}
+
+/* ── Download bar ───────────────────────────────────────────────── */
+.vyoma-download-bar {
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  background: rgba(6, 6, 6, 0.92);
+  border-top: 1px solid rgba(201, 168, 76, 0.12);
+  border-bottom: 1px solid rgba(201, 168, 76, 0.12);
+  padding: 2rem 1.5rem;
+  min-height: unset;
+  max-width: none;
+}
+
+.vyoma-download-bar__inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+}
+
+.vyoma-download-bar__title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #f8fafc;
+  margin: 0 0 0.35rem;
+}
+
+.vyoma-download-bar__sub {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.85);
+  margin: 0;
+}
+
+.vyoma-download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.25rem;
+  border: 1px solid rgba(201, 168, 76, 0.55);
+  border-radius: 2px;
+  background: transparent;
+  color: rgba(232, 211, 168, 0.95);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition: border-color 0.35s ease, box-shadow 0.35s ease;
+}
+
+.vyoma-download-btn__arrow {
+  display: inline-block;
+  transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.vyoma-download-btn:hover .vyoma-download-btn__arrow {
+  transform: translateX(5px);
+}
+
+.vyoma-download-btn:hover {
+  border-color: rgba(201, 168, 76, 0.9);
+  box-shadow: 0 0 14px rgba(201, 168, 76, 0.15);
+}
+
+/* ── Modals ─────────────────────────────────────────────────────── */
+.vyoma-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.vyoma-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(8px);
+  border: none;
+  cursor: pointer;
+}
+
+.vyoma-modal {
+  position: relative;
+  z-index: 1;
+  width: min(440px, 100%);
+  padding: 2rem;
+  background: rgba(10, 10, 10, 0.95);
+  border: 1px solid rgba(201, 168, 76, 0.2);
+  border-radius: 2px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65);
+  text-align: center;
+}
+
+.vyoma-payment-modal__logo {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 1rem;
+  object-fit: contain;
+}
+
+.vyoma-payment-modal__eyebrow {
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(201, 168, 76, 0.55);
+  margin-bottom: 0.5rem;
+}
+
+.vyoma-payment-modal__plan {
+  font-size: 2rem;
+  letter-spacing: 0.15em;
+  color: #fff;
+  margin: 0 0 0.5rem;
+}
+
+.vyoma-payment-modal__price {
+  font-size: 1.25rem;
+  color: #c9a84c;
+  margin-bottom: 1.5rem;
+}
+
+.vyoma-payment-modal__pay {
+  width: 100%;
+  margin-bottom: 0.75rem;
+}
+
+.vyoma-modal-dismiss {
+  background: none;
+  border: none;
+  color: rgba(148, 163, 184, 0.8);
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.vyoma-modal-dismiss:hover {
+  color: rgba(226, 232, 240, 0.95);
+}
+
+.vyoma-morning-modal {
+  width: min(640px, 100%);
+  text-align: left;
+}
+
+.vyoma-morning-modal__title {
+  font-size: 1.5rem;
+  color: #fff;
+  margin: 0 0 1rem;
+}
+
+.vyoma-morning-modal__terminal {
+  margin-bottom: 1.5rem;
+  max-height: 50vh;
+  overflow: auto;
+}
+
+/* ── Particle burst button ──────────────────────────────────────── */
+.particle-burst-btn {
+  position: relative;
+  overflow: visible;
+}
+
+.particle-burst-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ── Convergence wordmark ───────────────────────────────────────── */
+.vyoma-wordmark-unified {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+}

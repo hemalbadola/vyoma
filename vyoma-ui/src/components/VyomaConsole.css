@@ -1,0 +1,314 @@
+.vyoma-console {
+  background: rgba(17, 17, 24, 0.88);
+  border: 1px solid rgba(212, 175, 55, 0.18);
+  border-radius: 24px;
+  padding: 2rem;
+  backdrop-filter: blur(20px);
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.45);
+}
+
+.vyoma-console__header {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .vyoma-console__header {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 2rem;
+  }
+}
+
+.vyoma-console__tag {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #f0d78c;
+  background: rgba(212, 175, 55, 0.12);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid rgba(240, 215, 140, 0.25);
+}
+
+.vyoma-console__title {
+  font-size: clamp(1.75rem, 3vw, 2.5rem);
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 0.5rem;
+}
+
+.vyoma-console__subtitle {
+  color: rgba(226, 232, 240, 0.85);
+  line-height: 1.6;
+  max-width: 38rem;
+  margin: 0;
+}
+
+.vyoma-console__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.65rem 1rem;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: background 0.3s ease, border 0.3s ease, color 0.3s ease;
+  border: 1px solid transparent;
+  background: rgba(148, 163, 184, 0.12);
+  color: rgba(224, 231, 255, 0.9);
+}
+
+.vyoma-console__status--success {
+  background: rgba(34, 197, 94, 0.18);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #bbf7d0;
+}
+
+.vyoma-console__status--error {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fecaca;
+}
+
+.vyoma-console__status--neutral {
+  background: rgba(148, 163, 184, 0.14);
+  border-color: rgba(148, 163, 184, 0.28);
+}
+
+.vyoma-console__spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  border-top-color: #f0d78c;
+  border-right-color: #f0d78c;
+  animation: vyoma-console-spin 0.8s linear infinite;
+}
+
+@keyframes vyoma-console-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.vyoma-console__form {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.vyoma-console__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.vyoma-console__label {
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.85);
+  font-weight: 600;
+}
+
+.vyoma-console__textarea,
+.vyoma-console__input {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.85rem;
+  color: #e2e8f0;
+  padding: 0.9rem 1.1rem;
+  font-size: 0.95rem;
+  transition: border 0.3s ease, box-shadow 0.3s ease;
+  resize: none;
+}
+
+.vyoma-console__textarea:focus,
+.vyoma-console__input:focus {
+  outline: none;
+  border-color: rgba(212, 175, 55, 0.65);
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.2);
+}
+
+.vyoma-console__textarea {
+  min-height: 7.5rem;
+  resize: vertical;
+}
+
+.vyoma-console__controls {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 768px) {
+  .vyoma-console__controls {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.vyoma-console__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+@media (min-width: 640px) {
+  .vyoma-console__actions {
+    flex-direction: row;
+  }
+}
+
+.vyoma-console__button {
+  border-radius: 0.85rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 0.85rem 1.4rem;
+  border: 1px solid transparent;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  cursor: pointer;
+}
+
+.vyoma-console__button:focus-visible {
+  outline: 2px solid rgba(212, 175, 55, 0.7);
+  outline-offset: 3px;
+}
+
+.vyoma-console__button--primary {
+  background: linear-gradient(135deg, #d4af37 0%, #b8892c 100%);
+  color: #ffffff;
+  box-shadow: 0 12px 30px rgba(212, 175, 55, 0.35);
+}
+
+.vyoma-console__button--primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 40px rgba(212, 175, 55, 0.45);
+}
+
+.vyoma-console__button--secondary {
+  background: transparent;
+  border-color: rgba(148, 163, 184, 0.35);
+  color: rgba(226, 232, 240, 0.85);
+}
+
+.vyoma-console__button--secondary:hover {
+  background: rgba(148, 163, 184, 0.14);
+  border-color: rgba(148, 163, 184, 0.45);
+}
+
+.vyoma-console__results {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.vyoma-console__placeholder {
+  color: rgba(148, 163, 184, 0.85);
+  font-size: 0.95rem;
+}
+
+.vyoma-console__result-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.vyoma-console__result-summary-count {
+  color: rgba(226, 232, 240, 0.95);
+  font-weight: 600;
+}
+
+.vyoma-console__result-card {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 2px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.vyoma-console__result-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0;
+}
+
+.vyoma-console__result-source {
+  color: rgba(148, 163, 184, 0.85);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.vyoma-console__result-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  font-size: 0.85rem;
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.vyoma-console__link {
+  color: rgba(240, 215, 140, 0.95);
+  text-decoration: none;
+}
+
+.vyoma-console__link:hover {
+  text-decoration: underline;
+}
+
+.vyoma-console__result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.vyoma-console__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.6rem 1rem;
+  border-radius: 999px;
+  background: rgba(212, 175, 55, 0.16);
+  color: rgba(224, 231, 255, 0.95);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid rgba(212, 175, 55, 0.32);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.vyoma-console__chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(212, 175, 55, 0.35);
+}
+
+@media (max-width: 640px) {
+  .vyoma-console {
+    padding: 1.5rem;
+  }
+
+  .vyoma-console__controls {
+    grid-template-columns: 1fr;
+  }
+
+  .vyoma-console__actions {
+    width: 100%;
+  }
+
+  .vyoma-console__button {
+    width: 100%;
+  }
+}
