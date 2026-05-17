@@ -815,36 +815,6 @@ const SceneManager = ({ canvasRef, mainRef, onReady }: SceneManagerProps) => {
       const ringOuter = createRing(RING_OUTER_RADIUS, RING_OUTER_RADIUS + 0.01)
       let ringTargetOpacity = 0
 
-      // ── Spatial Axis Architecture ───────────────────────────────────
-      // Sparse structural beams — architectural, not decorative
-      const AXIS_COUNT = 12
-      const axisVerts: number[] = []
-      const axisColors: number[] = []
-      for (let i = 0; i < AXIS_COUNT; i++) {
-        // Intentional spacing: grid-like with subtle jitter
-        const col = (i % 4) - 1.5 // -1.5, -0.5, 0.5, 1.5
-        const row = Math.floor(i / 4) - 1 // -1, 0, 1
-        const x = col * 28 + (Math.random() - 0.5) * 6
-        const z = row * 18 + (Math.random() - 0.5) * 4
-        axisVerts.push(x, -50, z, x, 50, z)
-        // Varied brightness: some brighter reference lines, others ghostly
-        const brightness = 0.015 + Math.random() * 0.025
-        axisColors.push(brightness, brightness, brightness, brightness, brightness, brightness)
-      }
-      const axisGeom = new THREE.BufferGeometry()
-      axisGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(axisVerts), 3))
-      axisGeom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(axisColors), 3))
-      const axisMat = new THREE.LineBasicMaterial({
-        color: 0xd4af37,
-        transparent: true,
-        opacity: 1.0,
-        vertexColors: true,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false
-      })
-      const spatialAxes = new THREE.LineSegments(axisGeom, axisMat)
-      rootGroup.add(spatialAxes)
-
       // Title position tracking for particle compression
       const titlePositions: THREE.Vector3[] = []
 
@@ -1266,8 +1236,6 @@ const SceneManager = ({ canvasRef, mainRef, onReady }: SceneManagerProps) => {
         glowMaterial.dispose()
         wireframe.geometry.dispose()
         wireframeMaterial.dispose()
-        axisGeom.dispose()
-        axisMat.dispose()
         const sharedGeom = displayMesh.geometry
         sharedGeom.dispose()
         if (displayMesh.material instanceof THREE.Material) displayMesh.material.dispose()
