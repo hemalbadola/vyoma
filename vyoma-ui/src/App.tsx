@@ -36,7 +36,7 @@ function App() {
   const [loaderExiting, setLoaderExiting] = useState(false)
   const [scrollProgress, setScrollProgress] = useState(0)
   const [showBackToTop, setShowBackToTop] = useState(false)
-  const [isMuted, setIsMuted] = useState(true)
+  const [isMuted, setIsMuted] = useState(false)
   const [paymentPlan, setPaymentPlan] = useState<PricingPlan | null>(null)
   const [morningPreviewOpen, setMorningPreviewOpen] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -98,17 +98,29 @@ function App() {
   }, [isMuted])
 
   useEffect(() => {
-    const startAudio = () => {
-      const audio = audioRef.current
-      if (audio && isMuted) {
-        audio.volume = AMBIENT_VOLUME
-        audio.play().then(() => setIsMuted(false)).catch(() => {})
-      }
-      document.removeEventListener('click', startAudio)
+    const audio = audioRef.current
+    if (!audio) return
+
+    audio.volume = AMBIENT_VOLUME
+
+    const playAmbient = () =>
+      audio.play().then(() => setIsMuted(false)).catch(() => setIsMuted(true))
+
+    void playAmbient()
+
+    // Browsers often block autoplay until a gesture — retry once on interaction
+    const resumeOnGesture = () => {
+      if (!audio.paused) return
+      audio.volume = AMBIENT_VOLUME
+      void playAmbient()
     }
-    document.addEventListener('click', startAudio, { once: true })
-    return () => document.removeEventListener('click', startAudio)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    document.addEventListener('click', resumeOnGesture, { once: true })
+    document.addEventListener('keydown', resumeOnGesture, { once: true })
+    return () => {
+      document.removeEventListener('click', resumeOnGesture)
+      document.removeEventListener('keydown', resumeOnGesture)
+    }
+  }, [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
