@@ -1,6 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import './index.css'
 import App from './App.tsx'
 import Login from './pages/Login.tsx'
@@ -52,12 +52,7 @@ createRoot(document.getElementById('root')!).render(
                 </ProtectedRoute>
               }
             />
-            {/* Legacy research routes → War Room until rebuilt */}
-            <Route path="/search" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-            <Route path="/scholar-search" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-            <Route path="/library" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-            <Route path="/network" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-            <Route path="/mentor" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </UserProfileProvider>
       </AuthProvider>

@@ -47,7 +47,7 @@ const Chat = () => {
       {
         id: 1,
         user_id: user.uid,
-        title: 'Research on Transformers',
+        title: 'Plan my focus blocks',
         model: 'gemini',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -56,7 +56,7 @@ const Chat = () => {
       {
         id: 2,
         user_id: user.uid,
-        title: 'Deep Learning Papers',
+        title: 'Morning briefing',
         model: 'gemini',
         created_at: new Date(Date.now() - 86400000).toISOString(),
         updated_at: new Date(Date.now() - 86400000).toISOString(),
@@ -73,14 +73,14 @@ const Chat = () => {
         id: 1,
         session_id: 1,
         role: 'user',
-        content: 'Can you explain how transformers work?',
+        content: 'What should I focus on in my 11am gap?',
         created_at: new Date().toISOString(),
       },
       {
         id: 2,
         session_id: 1,
         role: 'assistant',
-        content: 'Transformers are neural network architectures that use self-attention mechanisms to process sequential data. They were introduced in the "Attention Is All You Need" paper and have revolutionized NLP.',
+        content: 'Your 11:00–12:30 window is clear. Project draft is due at 3pm — I recommend starting there before your stand-up prep.',
         created_at: new Date().toISOString(),
       },
     ]);
@@ -132,7 +132,7 @@ const Chat = () => {
         id: Date.now() + 1,
         session_id: currentSession.id,
         role: 'assistant',
-        content: `I understand you're asking about "${messageContent}". This is a mock response demonstrating the chat interface. In production, this would connect to AI models like Gemini or Claude to provide research assistance.`,
+        content: `On "${messageContent}" — I'll align this with your calendar and tasks. (Operator responses will connect to Vyoma intelligence soon.)`,
         created_at: new Date().toISOString(),
       };
       
