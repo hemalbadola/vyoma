@@ -35,6 +35,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           uid: fbUser.uid,
           displayName: fbUser.displayName,
           email: fbUser.email,
+          photoURL: fbUser.photoURL,
         })
       } else {
         setUser(null)

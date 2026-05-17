@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import Sidebar from '../components/Sidebar';
+import VyomaAppLayout from '../layouts/VyomaAppLayout';
+import { useUserProfile } from '../contexts/UserProfileContext';
 import './Chat.css';
 
 interface ChatSession {
@@ -24,6 +25,7 @@ interface ChatMessage {
 
 const Chat = () => {
   const { user } = useAuth();
+  const { profile } = useUserProfile();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -149,18 +151,23 @@ const Chat = () => {
 
   if (loading || !user) {
     return (
-      <div style={{ display: 'flex', height: '100vh', background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)' }}>
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255, 255, 255, 0.7)' }}>
-          <div className="loading-spinner" style={{ width: '40px', height: '40px', border: '3px solid rgba(147, 51, 234, 0.1)', borderTopColor: '#9333ea', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}></div>
-        </div>
+      <div className="vyoma-route-loading">
+        <div className="vyoma-route-loading__spinner" />
+        <p>Loading operator chat…</p>
       </div>
     );
   }
 
+  const operatorName = profile?.displayName || user.displayName || 'Operator';
+
   return (
-    <div className="chat-page">
-      <Sidebar user={user} />
-      
+    <VyomaAppLayout>
+    <div className="chat-page vyoma-chat-page">
+      <header className="vyoma-page-header" style={{ marginBottom: '1rem' }}>
+        <p className="vyoma-page-eyebrow">Operator</p>
+        <h1 className="vyoma-page-title">Ask Vyoma</h1>
+        <p className="vyoma-page-sub">Hi {operatorName} — what should we focus on next?</p>
+      </header>
       <div className="chat-sidebar">
         <div className="chat-sidebar-header">
           <h2>Conversations</h2>
@@ -285,6 +292,7 @@ const Chat = () => {
         )}
       </div>
     </div>
+    </VyomaAppLayout>
   );
 };
 

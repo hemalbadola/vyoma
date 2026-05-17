@@ -1,7 +1,15 @@
+.vyoma-chat-page.chat-page {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 4rem);
+  background: transparent;
+  overflow: hidden;
+}
+
 .chat-page {
   display: flex;
-  height: 100vh;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 

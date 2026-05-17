@@ -1,41 +1,39 @@
-import { Navigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { Navigate, useLocation } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
+import { useUserProfile } from '../contexts/UserProfileContext'
 
 interface ProtectedRouteProps {
-  children: React.ReactNode;
+  children: React.ReactNode
+  requireProfile?: boolean
 }
 
-export default function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { user, loading } = useAuth();
+export default function ProtectedRoute({ children, requireProfile = true }: ProtectedRouteProps) {
+  const { user, loading: authLoading } = useAuth()
+  const { hasProfile, loading: profileLoading } = useUserProfile()
+  const location = useLocation()
+
+  const loading = authLoading || (requireProfile && user && profileLoading)
 
   if (loading) {
     return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-        color: 'white'
-      }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{
-            width: '40px',
-            height: '40px',
-            border: '3px solid rgba(255, 255, 255, 0.1)',
-            borderTopColor: '#c9a84c',
-            borderRadius: '50%',
-            animation: 'spin 0.8s linear infinite',
-            margin: '0 auto'
-          }}></div>
-        </div>
+      <div className="vyoma-route-loading">
+        <div className="vyoma-route-loading__spinner" />
+        <p>Syncing your Vyoma field…</p>
       </div>
-    );
+    )
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />
   }
 
-  return <>{children}</>;
+  if (requireProfile && !hasProfile && location.pathname !== '/profile-setup') {
+    return <Navigate to="/profile-setup" replace />
+  }
+
+  if (!requireProfile && hasProfile && location.pathname === '/profile-setup') {
+    return <Navigate to="/dashboard" replace />
+  }
+
+  return <>{children}</>
 }

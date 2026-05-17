@@ -7,6 +7,7 @@ import {
   signInWithPopup,
 } from 'firebase/auth'
 import { auth } from '../firebase'
+import '../components/landing/landing.css'
 import './Login.css'
 
 export default function Login() {

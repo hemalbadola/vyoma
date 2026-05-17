@@ -3,7 +3,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #0f0f23 0%, #1a0b2e 50%, #16213e 100%);
+  background: #060b19;
   position: relative;
   overflow: hidden;
   padding: 2rem;
@@ -80,10 +80,10 @@
 
 /* Login card */
 .login-card {
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 24px;
+  background: rgba(12, 10, 6, 0.72);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(201, 168, 76, 0.18);
+  border-radius: 2px;
   padding: 3rem;
   width: 100%;
   max-width: 440px;

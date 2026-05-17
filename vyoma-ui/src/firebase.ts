@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
+import { getFirestore } from 'firebase/firestore'
 
 /** Same Firebase project as the Flutter app (`vyoma-in`). */
 const firebaseConfig = {
@@ -11,5 +12,6 @@ const firebaseConfig = {
   appId: '1:126666832937:web:8adc6251dd8793fb053038',
 }
 
-const app = initializeApp(firebaseConfig)
+export const app = initializeApp(firebaseConfig)
 export const auth = getAuth(app)
+export const db = getFirestore(app)
