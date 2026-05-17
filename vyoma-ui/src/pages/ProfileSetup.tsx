@@ -41,7 +41,7 @@ export default function ProfileSetup() {
 
       <div className="login-card">
         <div className="login-header">
-          <img src="/vyoma-logo.png" alt="" className="login-logo-mark" />
+          <img src="/vyomaicon.png" alt="" className="login-logo-mark" />
           <h1 className="login-title font-cormorant login-wordmark-vyoma">VYOMA</h1>
           <p className="login-subtitle">Set up your operator profile — synced with the mobile app.</p>
         </div>

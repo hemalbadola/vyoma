@@ -24,7 +24,7 @@ export default function PaymentModal({ plan, onClose }: PaymentModalProps) {
     <div className="vyoma-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="payment-modal-title">
       <button type="button" className="vyoma-modal-backdrop" onClick={onClose} aria-label="Close payment modal" />
       <div className="vyoma-modal vyoma-payment-modal">
-        <img src="/vyoma-logo.png" alt="" className="vyoma-payment-modal__logo" />
+        <img src="/vyomaicon.png" alt="" className="vyoma-payment-modal__logo" />
         <p className="vyoma-payment-modal__eyebrow">Complete your subscription</p>
         <h2 id="payment-modal-title" className="vyoma-payment-modal__plan font-cormorant">
           {plan.name}

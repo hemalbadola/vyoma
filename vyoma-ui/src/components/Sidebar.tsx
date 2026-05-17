@@ -36,7 +36,7 @@ export default function Sidebar(_props?: { user?: unknown }) {
     <aside className="vyoma-sidebar">
       <div className="vyoma-sidebar__brand">
         <Link to="/dashboard" className="vyoma-sidebar__logo-link">
-          <img src="/vyoma-logo.png" alt="" className="vyoma-sidebar__mark" />
+          <img src="/vyomaicon.png" alt="" className="vyoma-sidebar__mark" />
           <span className="vyoma-sidebar__wordmark font-cormorant">VYOMA</span>
         </Link>
       </div>
