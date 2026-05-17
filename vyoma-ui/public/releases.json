@@ -1,0 +1,25 @@
+{
+  "version": "1.0.0",
+  "releasedAt": "2026-05-17",
+  "releaseNotes": "Initial public release of Vyoma for web, Android sideload, and desktop beta.",
+  "platforms": {
+    "android": {
+      "label": "Android",
+      "fileName": "vyoma.apk",
+      "url": "/vyoma.apk",
+      "available": true
+    },
+    "windows": {
+      "label": "Windows",
+      "fileName": "Vyoma-Setup.exe",
+      "url": "",
+      "available": false
+    },
+    "macos": {
+      "label": "macOS",
+      "fileName": "Vyoma.dmg",
+      "url": "",
+      "available": false
+    }
+  }
+}

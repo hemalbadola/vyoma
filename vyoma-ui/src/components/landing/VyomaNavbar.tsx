@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom'
+
 type VyomaNavbarProps = {
   onGetStarted: () => void
 }
@@ -13,9 +15,9 @@ export default function VyomaNavbar({ onGetStarted }: VyomaNavbarProps) {
         <button type="button" className="vyoma-nav-cta-ghost" onClick={onGetStarted}>
           Get started
         </button>
-        <a href="/login" className="vyoma-nav-signin">
+        <Link to="/login" className="vyoma-nav-signin">
           Sign in
-        </a>
+        </Link>
       </div>
     </header>
   )

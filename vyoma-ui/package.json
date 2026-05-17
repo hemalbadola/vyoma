@@ -1,15 +1,17 @@
 {
-  "name": "paperverse-ui",
+  "name": "vyoma-ui",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "release:bump": "node scripts/bump-release.mjs patch"
   },
   "dependencies": {
+    "firebase": "^11.10.0",
     "gsap": "^3.13.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",

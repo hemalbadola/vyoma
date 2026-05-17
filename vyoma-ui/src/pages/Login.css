@@ -118,16 +118,27 @@
   letter-spacing: -0.02em;
 }
 
-.title-paper {
-  color: white;
+.login-logo-mark {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  margin: 0 auto 1rem;
+  display: block;
 }
 
-.title-verse {
-  color: #d4af37;
-  background: linear-gradient(135deg, #d4af37 0%, #f0d78c 100%);
+.login-wordmark-vyoma {
+  letter-spacing: 0.35em;
+  font-weight: 600;
+  color: rgba(245, 230, 200, 0.95);
+  background: linear-gradient(135deg, #e8d3a8 0%, #d4af37 55%, #f0d78c 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+.vyoma-login .submit-button {
+  background: linear-gradient(135deg, rgba(201, 168, 76, 0.25) 0%, rgba(201, 168, 76, 0.12) 100%);
+  border: 1px solid rgba(201, 168, 76, 0.45);
 }
 
 .login-subtitle {

@@ -1,18 +1,12 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { onAuthStateChanged, signOut } from 'firebase/auth'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { auth } from '../firebase'
 import type { AuthUser } from '../types/auth'
-
-const GUEST_USER: AuthUser = {
-  uid: 'guest',
-  displayName: 'Guest',
-  email: 'guest@local.dev'
-}
 
 interface AuthContextType {
   user: AuthUser | null
   loading: boolean
-  signInGuest: () => void
   logout: () => Promise<void>
-  /** Bearer token for backend calls when Firebase is not wired; set `VITE_DEV_API_TOKEN` in `.env`. */
   getApiToken: () => Promise<string | undefined>
 }
 
@@ -32,17 +26,38 @@ interface AuthProviderProps {
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<AuthUser | null>(null)
-  const [loading] = useState(false)
+  const [loading, setLoading] = useState(true)
 
-  const signInGuest = useCallback(() => {
-    setUser(GUEST_USER)
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
+      if (fbUser) {
+        setUser({
+          uid: fbUser.uid,
+          displayName: fbUser.displayName,
+          email: fbUser.email,
+        })
+      } else {
+        setUser(null)
+      }
+      setLoading(false)
+    })
+    return unsubscribe
   }, [])
 
   const logout = useCallback(async () => {
+    await signOut(auth)
     setUser(null)
   }, [])
 
   const getApiToken = useCallback(async () => {
+    const fbUser = auth.currentUser
+    if (fbUser) {
+      try {
+        return await fbUser.getIdToken()
+      } catch {
+        return undefined
+      }
+    }
     const t = import.meta.env.VITE_DEV_API_TOKEN
     return typeof t === 'string' && t.trim() !== '' ? t.trim() : undefined
   }, [])
@@ -51,11 +66,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     () => ({
       user,
       loading,
-      signInGuest,
       logout,
-      getApiToken
+      getApiToken,
     }),
-    [user, loading, signInGuest, logout, getApiToken]
+    [user, loading, logout, getApiToken]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

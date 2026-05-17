@@ -4,6 +4,8 @@ import './components/landing/landing.css'
 import VyomaLoader from './components/VyomaLoader'
 import VyomaCursor from './components/VyomaCursor'
 import VyomaNavbar from './components/landing/VyomaNavbar'
+import DownloadSection from './components/landing/DownloadSection'
+import { Link } from 'react-router-dom'
 import PaymentModal, { type PricingPlan } from './components/landing/PaymentModal'
 import MorningPreviewModal from './components/landing/MorningPreviewModal'
 import ParticleBurstButton from './components/landing/ParticleBurstButton'
@@ -22,7 +24,6 @@ declare global {
   }
 }
 
-const APK_URL = import.meta.env.VITE_VYOMA_APK_URL ?? '/vyoma.apk'
 /** Default ambient loop level (0–1). Override with VITE_AMBIENT_VOLUME in .env */
 const AMBIENT_VOLUME = Math.min(1, Math.max(0, Number(import.meta.env.VITE_AMBIENT_VOLUME) || 0.55))
 
@@ -329,31 +330,16 @@ Without you asking.`}
               </div>
             </section>
 
-            <section className="content-section vyoma-download-bar" aria-labelledby="download-heading">
-              <div className="vyoma-download-bar__inner">
-                <div>
-                  <h2 id="download-heading" className="vyoma-download-bar__title">
-                    Download Vyoma for Android
-                  </h2>
-                  <p className="vyoma-download-bar__sub">Available now · Sideload enabled</p>
-                </div>
-                <a href={APK_URL} className="vyoma-download-btn" download>
-                  Download APK
-                  <span className="vyoma-download-btn__arrow" aria-hidden="true">
-                    →
-                  </span>
-                </a>
-              </div>
-            </section>
+            <DownloadSection />
 
             <section id="section-6" className="content-section section-6">
               <h2 id="orchestrate-heading" className="text-3xl md:text-5xl font-bold text-white mb-6">
                 The intelligence between your plans and your time.
               </h2>
               <div className="flex flex-col sm:flex-row gap-6 justify-center mb-16">
-                <a href="/login" className="cta-button vyoma-cta text-center">
+                <Link to="/login" className="cta-button vyoma-cta text-center">
                   Sign In
-                </a>
+                </Link>
                 <a href="mailto:hello@vyoma.app" className="secondary-button text-center">
                   Contact
                 </a>

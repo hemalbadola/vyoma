@@ -8,6 +8,9 @@ declare global {
     readonly VITE_RAZORPAY_MONTHLY_URL?: string
     readonly VITE_RAZORPAY_SEMESTER_URL?: string
     readonly VITE_VYOMA_APK_URL?: string
+    readonly VITE_VYOMA_WINDOWS_URL?: string
+    readonly VITE_VYOMA_MAC_URL?: string
+    readonly VITE_APP_VERSION?: string
     readonly VITE_AMBIENT_VOLUME?: string
   }
 

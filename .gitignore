@@ -11,6 +11,8 @@ node_modules/
 !ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json
 !macos/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json
 !web/manifest.json
+!vyoma-ui/public/releases.json
+!vyoma-ui/package-lock.json
 *_decoded.txt
 all_gemini_keys.txt
 test_*.py

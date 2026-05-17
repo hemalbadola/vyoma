@@ -23,7 +23,7 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
             width: '40px',
             height: '40px',
             border: '3px solid rgba(255, 255, 255, 0.1)',
-            borderTopColor: '#6366f1',
+            borderTopColor: '#c9a84c',
             borderRadius: '50%',
             animation: 'spin 0.8s linear infinite',
             margin: '0 auto'

@@ -457,7 +457,106 @@
   transform: translateY(-1px);
 }
 
-/* ── Download bar ───────────────────────────────────────────────── */
+/* ── Downloads & updates ────────────────────────────────────────── */
+.vyoma-download-section {
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  background: rgba(6, 6, 6, 0.92);
+  border-top: 1px solid rgba(201, 168, 76, 0.12);
+  border-bottom: 1px solid rgba(201, 168, 76, 0.12);
+  padding: 2.5rem 1.5rem 2rem;
+  min-height: unset;
+  max-width: none;
+}
+
+.vyoma-download-section__header {
+  max-width: 720px;
+  margin: 0 auto 1.75rem;
+  text-align: center;
+}
+
+.vyoma-update-banner {
+  margin-top: 1rem;
+  padding: 0.65rem 1rem;
+  border: 1px solid rgba(201, 168, 76, 0.35);
+  border-radius: 2px;
+  background: rgba(201, 168, 76, 0.08);
+  color: rgba(232, 211, 168, 0.95);
+  font-size: 0.85rem;
+}
+
+.vyoma-download-release-notes {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: rgba(148, 163, 184, 0.9);
+  line-height: 1.5;
+}
+
+.vyoma-download-error {
+  margin-top: 0.75rem;
+  color: #fca5a5;
+  font-size: 0.85rem;
+}
+
+.vyoma-download-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.vyoma-download-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.25rem 1rem;
+  border: 1px solid rgba(201, 168, 76, 0.15);
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.35);
+  text-align: center;
+}
+
+.vyoma-download-card--soon {
+  opacity: 0.65;
+}
+
+.vyoma-download-card__platform {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.vyoma-download-card__hint {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: rgba(148, 163, 184, 0.85);
+  margin-bottom: 0.5rem;
+}
+
+.vyoma-download-soon {
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(201, 168, 76, 0.55);
+}
+
+.vyoma-download-footnote {
+  max-width: 720px;
+  margin: 1.5rem auto 0;
+  text-align: center;
+  font-size: 0.75rem;
+  color: rgba(100, 116, 139, 0.9);
+  line-height: 1.5;
+}
+
+.vyoma-download-footnote code {
+  font-size: 0.7rem;
+  color: rgba(201, 168, 76, 0.75);
+}
+
+/* Legacy single-row download bar */
 .vyoma-download-bar {
   width: 100vw;
   margin-left: calc(50% - 50vw);
