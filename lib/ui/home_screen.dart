@@ -21,6 +21,7 @@ import 'screens/profile_setup_screen.dart';
 import 'screens/settings_hub_screen.dart';
 import 'screens/notifications_screen.dart';
 import '../core/user_service.dart';
+import '../core/update_service.dart';
 import '../core/telemetry_service.dart';
 import '../tutorial/tutorial_controller.dart';
 import '../tutorial/tutorial_keys.dart';
@@ -135,6 +136,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       _tutorialListener();
       await BackgroundAgentEngine.initialize();
+      if (!mounted) return;
+      await UpdateService.checkForUpdates(context, force: true);
     });
   }
 
@@ -149,6 +152,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     final telemetry = context.read<TelemetryService>();
+
+    if (state == AppLifecycleState.resumed) {
+      UpdateService.checkForUpdates(context);
+    }
 
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||

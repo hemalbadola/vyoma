@@ -13,6 +13,7 @@ import '../widgets/glass_card.dart';
 import '../onboarding_screen.dart';
 import '../../features/anti_goals/presentation/screens/anti_goals_screen.dart';
 import '../../features/dharma_map/presentation/screens/dharma_map_screen.dart';
+import 'subscription_screen.dart';
 
 class SettingsHubScreen extends StatefulWidget {
   const SettingsHubScreen({super.key});
@@ -190,6 +191,44 @@ class _SettingsHubScreenState extends State<SettingsHubScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            _sectionHeader('✦ SUBSCRIPTION'),
+            GlassCard(
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const SubscriptionScreen()),
+                );
+              },
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          profile.subscriptionPlan != null
+                              ? 'Plan: ${profile.subscriptionPlan}'
+                              : 'Upgrade Vyoma',
+                          style: GoogleFonts.outfit(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          profile.subscriptionExpiresAt != null
+                              ? 'Renews / expires ${profile.subscriptionExpiresAt}'
+                              : 'Weekly, monthly & semester — same as the website.',
+                          style: GoogleFonts.outfit(color: Colors.white60, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, color: Colors.white38),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
             _sectionHeader('🛡️ PRIVACY & ACCOUNTABILITY'),
             _buildPrivacyTile(
               title: "Share Active Tasks",

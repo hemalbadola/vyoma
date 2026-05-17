@@ -1,0 +1,29 @@
+{
+  "currency": "INR",
+  "plans": [
+    {
+      "id": "weekly",
+      "name": "Weekly",
+      "priceLabel": "₹29 / week",
+      "cta": "Start this week",
+      "amountPaise": 2900,
+      "durationDays": 7
+    },
+    {
+      "id": "monthly",
+      "name": "Monthly",
+      "priceLabel": "₹99 / month",
+      "cta": "Start free—14 days",
+      "amountPaise": 9900,
+      "durationDays": 30
+    },
+    {
+      "id": "semester",
+      "name": "Semester",
+      "priceLabel": "₹449 / 6 months",
+      "cta": "Start free—14 days",
+      "amountPaise": 44900,
+      "durationDays": 183
+    }
+  ]
+}

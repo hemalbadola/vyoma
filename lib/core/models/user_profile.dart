@@ -16,6 +16,9 @@ class UserProfile {
   final bool showOnlineStatus;
   final bool enableTelemetry;
   final bool shareIntention;
+  final String? subscriptionPlan;
+  final String? subscriptionStatus;
+  final DateTime? subscriptionExpiresAt;
 
   UserProfile({
     required this.uid,
@@ -33,6 +36,9 @@ class UserProfile {
     this.showOnlineStatus = true,
     this.enableTelemetry = true,
     this.shareIntention = true,
+    this.subscriptionPlan,
+    this.subscriptionStatus,
+    this.subscriptionExpiresAt,
   });
 
   factory UserProfile.fromFirestore(DocumentSnapshot doc) {
@@ -63,6 +69,11 @@ class UserProfile {
       showOnlineStatus: data['showOnlineStatus'] ?? true,
       enableTelemetry: data['enableTelemetry'] ?? true,
       shareIntention: data['shareIntention'] ?? true,
+      subscriptionPlan: data['subscriptionPlan'] as String?,
+      subscriptionStatus: data['subscriptionStatus'] as String?,
+      subscriptionExpiresAt: data['subscriptionExpiresAt'] != null
+          ? (data['subscriptionExpiresAt'] as Timestamp).toDate()
+          : null,
     );
   }
 

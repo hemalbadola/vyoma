@@ -23,7 +23,19 @@ service cloud.firestore {
     // ── Users + nested owner data (tasks, daily_metrics, devices, …) ───────
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow create, update: if isOwner(userId);
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId)
+        && !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny([
+            'subscriptionPlan',
+            'subscriptionStatus',
+            'subscriptionActiveAt',
+            'subscriptionExpiresAt',
+            'lastPaymentId',
+            'lastOrderId',
+            'subscriptionSource',
+            'lastCouponCode'
+          ]);
       allow delete: if false;
 
       match /{document=**} {
@@ -105,6 +117,18 @@ service cloud.firestore {
         resource.data.advisorUid == request.auth.uid
       );
       allow delete: if false;
+    }
+
+    match /payment_records/{paymentId} {
+      allow read, write: if false;
+    }
+
+    match /promo_codes/{code} {
+      allow read, write: if false;
+
+      match /redemptions/{uid} {
+        allow read, write: if false;
+      }
     }
 
     match /council_queries/{queryId} {
