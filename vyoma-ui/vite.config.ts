@@ -10,4 +10,18 @@ export default defineConfig({
   define: {
     'import.meta.env.PACKAGE_VERSION': JSON.stringify(pkg.version),
   },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:5001/vyoma-in/asia-south1',
+        changeOrigin: true,
+        rewrite: (path) => {
+          if (path.includes('create-order')) return '/createOrder'
+          if (path.includes('verify-payment')) return '/verifyPayment'
+          if (path.includes('redeem-coupon')) return '/redeemCoupon'
+          return path
+        },
+      },
+    },
+  },
 })

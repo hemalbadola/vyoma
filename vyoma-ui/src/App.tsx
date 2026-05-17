@@ -4,6 +4,7 @@ import './components/landing/landing.css'
 import VyomaLoader from './components/VyomaLoader'
 import VyomaCursor from './components/VyomaCursor'
 import VyomaNavbar from './components/landing/VyomaNavbar'
+import UpdateBanner from './components/landing/UpdateBanner'
 import DownloadSection from './components/landing/DownloadSection'
 import { Link } from 'react-router-dom'
 import PaymentModal, { type PricingPlan } from './components/landing/PaymentModal'
@@ -145,6 +146,7 @@ function App() {
       )}
 
       <VyomaNavbar onGetStarted={() => scrollToSection('section-5')} />
+      <UpdateBanner />
 
       <div className="vyoma-scroll-bar" aria-hidden="true">
         <div className="vyoma-scroll-bar__fill" style={{ width: `${scrollProgress}%` }} />
@@ -180,11 +182,13 @@ function App() {
           </Suspense>
           <main ref={mainRef} className="relative z-10">
             <section id="section-1" className="content-section section-1 hero-minimal">
-              <p className="text-lg md:text-xl text-slate-300 max-w-3xl mx-auto mb-8 leading-relaxed hero-tagline">
-                The intelligence between your plans and your time.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-6 justify-center">
-                <ParticleBurstButton
+              <div className="hero-visual-spacer" aria-hidden="true" />
+              <div className="hero-actions-panel">
+                <p className="hero-tagline">
+                  The intelligence between your plans and your time.
+                </p>
+                <div className="hero-cta-row">
+                  <ParticleBurstButton
                   className="cta-button vyoma-cta text-center"
                   onActivate={() => scrollToSection('section-2')}
                 >
@@ -197,6 +201,7 @@ function App() {
                 >
                   See the morning
                 </button>
+                </div>
               </div>
             </section>
 

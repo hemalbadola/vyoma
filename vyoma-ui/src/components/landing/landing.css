@@ -89,6 +89,70 @@
   color: rgba(232, 211, 168, 0.95);
 }
 
+@media (max-width: 768px) {
+  .vyoma-nav {
+    height: 52px;
+    padding: 0 max(0.75rem, env(safe-area-inset-left)) 0 max(0.75rem, env(safe-area-inset-right));
+  }
+
+  .vyoma-nav-wordmark {
+    font-size: 0.9rem;
+    letter-spacing: 0.22em;
+  }
+
+  .vyoma-nav-mark {
+    width: 28px;
+    height: 28px;
+  }
+
+  .vyoma-nav-actions {
+    gap: 0.5rem;
+  }
+
+  .vyoma-nav-cta-ghost {
+    padding: 0.4rem 0.65rem;
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+  }
+
+  .vyoma-nav-signin {
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+  }
+
+  .vyoma-update-banner--floating {
+    top: 3.75rem;
+    left: 0.75rem;
+    right: 0.75rem;
+    transform: none;
+    max-width: none;
+    flex-wrap: wrap;
+    justify-content: center;
+    font-size: 0.78rem;
+    padding: 0.55rem 0.75rem;
+  }
+
+  .vyoma-download-section {
+    padding: 2rem 1rem 1.5rem;
+  }
+
+  .vyoma-download-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .vyoma-modal-overlay {
+    padding: 1rem;
+    align-items: flex-end;
+  }
+
+  .vyoma-modal {
+    width: 100%;
+    max-height: 90dvh;
+    overflow-y: auto;
+    padding: 1.5rem 1.25rem;
+  }
+}
+
 /* ── Scroll progress ────────────────────────────────────────────── */
 .vyoma-scroll-bar {
   position: fixed;
@@ -485,6 +549,65 @@
   font-size: 0.85rem;
 }
 
+.vyoma-update-banner--floating {
+  position: fixed;
+  top: 4.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: min(92vw, 520px);
+}
+
+.vyoma-update-banner__refresh {
+  flex-shrink: 0;
+  background: rgba(212, 175, 55, 0.2);
+  border: 1px solid rgba(212, 175, 55, 0.45);
+  color: rgba(232, 211, 168, 0.95);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+}
+
+.vyoma-payment-modal__coupon {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.vyoma-payment-modal__coupon-input {
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(212, 175, 55, 0.25);
+  color: rgba(245, 230, 200, 0.95);
+  font-size: 0.9rem;
+}
+
+.vyoma-payment-modal__coupon-btn {
+  width: 100%;
+  padding: 0.65rem;
+  background: transparent;
+  border: 1px solid rgba(212, 175, 55, 0.45);
+  color: rgba(232, 211, 168, 0.95);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.vyoma-payment-modal__coupon-btn:disabled,
+.vyoma-payment-modal__coupon-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .vyoma-download-release-notes {
   margin-top: 0.75rem;
   font-size: 0.85rem;
@@ -684,6 +807,23 @@
 .vyoma-payment-modal__pay {
   width: 100%;
   margin-bottom: 0.75rem;
+}
+
+.vyoma-payment-modal__pay:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.vyoma-payment-modal__error {
+  color: #fca5a5;
+  font-size: 0.85rem;
+  margin-bottom: 0.75rem;
+}
+
+.vyoma-payment-modal__success {
+  color: #86efac;
+  font-size: 0.95rem;
+  margin-bottom: 1rem;
 }
 
 .vyoma-modal-dismiss {

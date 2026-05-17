@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 const COLORS = {
@@ -41,6 +41,9 @@ interface TrailPoint {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 export default function VyomaCursor() {
+  const [finePointer] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches
+  )
   const dotRef = useRef<HTMLDivElement>(null)
   const ringRef = useRef<HTMLDivElement>(null)
   const trailCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -321,6 +324,8 @@ export default function VyomaCursor() {
       window.removeEventListener('resize', resizeCanvas)
     }
   }, [])
+
+  if (!finePointer) return null
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (

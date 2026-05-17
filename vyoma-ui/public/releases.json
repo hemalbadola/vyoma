@@ -1,7 +1,9 @@
 {
-  "version": "1.0.0",
+  "appVersion": "1.11.2",
+  "webVersion": "1.11.2",
   "releasedAt": "2026-05-17",
-  "releaseNotes": "Initial public release of Vyoma for web, Android sideload, and desktop beta.",
+  "mandatory": false,
+  "releaseNotes": "War Room, Razorpay subscriptions, coupons, and auto-update prompts.",
   "platforms": {
     "android": {
       "label": "Android",

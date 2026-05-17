@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
-  compareVersions,
   fetchReleaseManifest,
+  manifestAppVersion,
   SITE_BUILD_VERSION,
   type PlatformId,
   type ReleaseManifest,
@@ -35,8 +35,8 @@ export default function DownloadSection() {
     }
   }, [])
 
-  const latestVersion = manifest?.version ?? SITE_BUILD_VERSION
-  const updateAvailable = manifest ? compareVersions(manifest.version, SITE_BUILD_VERSION) > 0 : false
+  const latestApp = manifest ? manifestAppVersion(manifest) : SITE_BUILD_VERSION
+  const updateAvailable = false
 
   return (
     <section className="content-section vyoma-download-section" aria-labelledby="download-heading">
@@ -46,7 +46,7 @@ export default function DownloadSection() {
           Get Vyoma on your device
         </h2>
         <p className="vyoma-download-bar__sub">
-          Latest release <strong className="accent-gold">v{latestVersion}</strong>
+          Latest app release <strong className="accent-gold">v{latestApp}</strong>
           {manifest?.releasedAt ? ` · ${manifest.releasedAt}` : ''}
         </p>
         {updateAvailable && (

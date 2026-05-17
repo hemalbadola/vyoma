@@ -8,10 +8,22 @@ export type PlatformRelease = {
 }
 
 export type ReleaseManifest = {
-  version: string
+  /** @deprecated Use appVersion / webVersion */
+  version?: string
+  appVersion: string
+  webVersion: string
   releasedAt: string
   releaseNotes: string
+  mandatory?: boolean
   platforms: Record<PlatformId, PlatformRelease>
+}
+
+export function manifestAppVersion(manifest: ReleaseManifest): string {
+  return manifest.appVersion ?? manifest.version ?? '0.0.0'
+}
+
+export function manifestWebVersion(manifest: ReleaseManifest): string {
+  return manifest.webVersion ?? manifest.version ?? manifestAppVersion(manifest)
 }
 
 const ENV_URLS: Partial<Record<PlatformId, string | undefined>> = {

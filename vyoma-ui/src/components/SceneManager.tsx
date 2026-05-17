@@ -22,7 +22,12 @@ const PARTICLE_COUNT = 14000
 const LOGO_ORBIT_FRACTION = 0.15
 const LOGO_GLB_CANDIDATES = ['/vyomalogo.glb', '/VyomaLogo.glb', '/vyoma-logo.glb']
 const LOGO_TARGET_SIZE = 18
-const HERO_LOGO_Y = 6.2
+const HERO_LOGO_Y_DESKTOP = 6.2
+const HERO_LOGO_Y_MOBILE = 10.5
+
+function isMobileViewport(): boolean {
+  return window.matchMedia('(max-width: 768px)').matches
+}
 const ORBIT_SPEED_MIN = 0.008
 const ORBIT_SPEED_MAX = 0.022
 const FIELD_SPEED_MIN = 0.004
@@ -629,11 +634,13 @@ const SceneManager = ({ canvasRef, mainRef, onReady }: SceneManagerProps) => {
       if (cancelled) return
 
       const scene = new THREE.Scene()
+      const mobileLayout = isMobileViewport()
+      const heroLogoY = mobileLayout ? HERO_LOGO_Y_MOBILE : HERO_LOGO_Y_DESKTOP
       const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000)
       const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true })
-      renderer.setPixelRatio(window.devicePixelRatio)
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, mobileLayout ? 1.5 : 2))
       renderer.setSize(window.innerWidth, window.innerHeight)
-      camera.position.set(0, 0, 32)
+      camera.position.set(0, mobileLayout ? 1.2 : 0, mobileLayout ? 38 : 32)
 
       scene.add(new THREE.AmbientLight(0xfff8e8, 0.4))
 
@@ -736,10 +743,10 @@ const SceneManager = ({ canvasRef, mainRef, onReady }: SceneManagerProps) => {
         logoRadius = 10
       }
 
-      logoGroup.position.y = HERO_LOGO_Y
+      logoGroup.position.y = heroLogoY
 
       const { outer: outerShell, inner: innerShell, scatter: scatterPositions, logoOrbitCount } =
-        buildParticleShells(sampleMesh, logoRadius, camera, HERO_LOGO_Y)
+        buildParticleShells(sampleMesh, logoRadius, camera, heroLogoY)
 
       const positions = new Float32Array(scatterPositions)
 
@@ -772,7 +779,7 @@ const SceneManager = ({ canvasRef, mainRef, onReady }: SceneManagerProps) => {
       const particleVelocities = new Float32Array(PARTICLE_COUNT * 3)
 
       // Per-particle formation delays for staggered assembly
-      const formationDelays = createFormationDelays(scatterPositions, HERO_LOGO_Y)
+      const formationDelays = createFormationDelays(scatterPositions, heroLogoY)
 
       // Constellation line geometry (pre-allocated)
       const constellationMaxVerts = MAX_CONSTELLATION_LINES * 2
@@ -806,7 +813,7 @@ const SceneManager = ({ canvasRef, mainRef, onReady }: SceneManagerProps) => {
         const mat = ringMaterial.clone()
         const mesh = new THREE.Mesh(geom, mat)
         mesh.rotation.x = -Math.PI / 2
-        mesh.position.y = HERO_LOGO_Y
+        mesh.position.y = heroLogoY
         logoGroup.add(mesh)
         return { mesh, mat, geom }
       }
@@ -874,7 +881,9 @@ const SceneManager = ({ canvasRef, mainRef, onReady }: SceneManagerProps) => {
       // Single smooth timeline — monotonic camera dolly, no bouncing
       const timeline = gsap.timeline({ paused: true })
       // Camera smoothly approaches — ONE direction only
-      timeline.to(camera.position, { z: 28, duration: 6, ease: 'power2.inOut' }, 0)
+      const cameraEndZ = mobileLayout ? 34 : 28
+      const logoEndY = mobileLayout ? 8.5 : 4.2
+      timeline.to(camera.position, { z: cameraEndZ, duration: 6, ease: 'power2.inOut' }, 0)
       // Logo glow builds then stays bright
       timeline.to(glowMaterial.uniforms.opacity, { value: 0.22, duration: 2.8, ease: 'power3.out' }, 0.4)
       timeline.to(wireframeMaterial, { opacity: 0.14, duration: 2.4, ease: 'power3.out' }, 0.6)
@@ -883,7 +892,7 @@ const SceneManager = ({ canvasRef, mainRef, onReady }: SceneManagerProps) => {
       // Logo becomes solid
       timeline.to(displayMat, { opacity: 1, duration: 2.0, ease: 'power3.out' }, 3.0)
       // Logo drifts up slightly to make room for content
-      timeline.to(logoGroup.position, { y: 4.2, duration: 3.0, ease: 'power3.inOut' }, 3.0)
+      timeline.to(logoGroup.position, { y: logoEndY, duration: 3.0, ease: 'power3.inOut' }, 3.0)
       timeline.to(particlesMaterial, { opacity: 0.88, duration: 2.0, ease: 'power3.out' }, 3.0)
       // Glow stays vivid on scroll — no dimming
       timeline.to(glowMaterial.uniforms.opacity, { value: 0.18, duration: 2.0, ease: 'power2.out' }, 4.5)
@@ -1185,7 +1194,8 @@ const SceneManager = ({ canvasRef, mainRef, onReady }: SceneManagerProps) => {
             gsap.set(entry.card, { x: 0, y: 0 })
             return
           }
-          gsap.set(entry.card, { x: -smoothedMouseX * 9, y: -smoothedMouseY * 9 })
+          const parallaxScale = mobileLayout ? 0 : 9
+          gsap.set(entry.card, { x: -smoothedMouseX * parallaxScale, y: -smoothedMouseY * parallaxScale })
           const rect = entry.card.getBoundingClientRect()
           const cardX = ((rect.left + rect.width / 2) / window.innerWidth) * 2 - 1
           const cardY = -((rect.top + rect.height / 2) / window.innerHeight) * 2 + 1
