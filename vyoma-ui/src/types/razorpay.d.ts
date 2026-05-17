@@ -6,7 +6,8 @@ export type RazorpaySuccessResponse = {
 
 export type RazorpayOptions = {
   key: string
-  amount: number
+  /** Required without order_id; optional when order_id is set (Razorpay reads amount from order). */
+  amount?: number
   currency: string
   name: string
   description?: string

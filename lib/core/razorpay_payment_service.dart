@@ -8,6 +8,7 @@ import 'package:razorpay_flutter/razorpay_flutter.dart';
 import 'config/payment_config.dart';
 import 'config/razorpay_checkout_config.dart';
 import 'models/subscription_plan.dart';
+import 'razorpay_prefill.dart';
 
 class RazorpayPaymentService {
   Razorpay? _razorpay;
@@ -31,7 +32,7 @@ class RazorpayPaymentService {
       headers: headers,
       body: jsonEncode({
         'planId': plan.id,
-        'receipt': 'vyoma_${plan.id}_${DateTime.now().millisecondsSinceEpoch}',
+        'receipt': buildOrderReceipt(plan.id),
         if (user != null) 'uid': user.uid,
       }),
     );
@@ -82,24 +83,32 @@ class RazorpayPaymentService {
     _onSuccess = (_) async => onVerified();
 
     final order = await createOrder(plan);
+    final orderId = order['order_id']?.toString().trim() ?? '';
+    if (orderId.isEmpty || !orderId.startsWith('order_')) {
+      throw Exception('Invalid payment order from server');
+    }
+
     _razorpay?.clear();
     _razorpay = Razorpay()
       ..on(Razorpay.EVENT_PAYMENT_SUCCESS, _handleSuccess)
       ..on(Razorpay.EVENT_PAYMENT_ERROR, _handleError)
       ..on(Razorpay.EVENT_EXTERNAL_WALLET, _handleExternalWallet);
 
+    final user = FirebaseAuth.instance.currentUser;
+    final prefill = buildRazorpayPrefill(
+      name: user?.displayName,
+      email: user?.email,
+      contact: user?.phoneNumber,
+    );
+
     final options = <String, dynamic>{
-      'key': order['key_id'] ?? PaymentConfig.razorpayKeyId,
-      'amount': order['amount'],
+      'key': (order['key_id'] ?? PaymentConfig.razorpayKeyId).toString().trim(),
       'currency': order['currency'] ?? 'INR',
       'name': 'VYOMA',
       'description': '${plan.name} subscription',
-      'order_id': order['order_id'],
-      'prefill': {
-        'email': FirebaseAuth.instance.currentUser?.email,
-        'contact': FirebaseAuth.instance.currentUser?.phoneNumber,
-      },
-      ...RazorpayCheckoutConfig.checkoutOptions,
+      'order_id': orderId,
+      if (prefill.isNotEmpty) 'prefill': prefill,
+      'method': RazorpayCheckoutConfig.checkoutOptions['method'],
     };
 
     _razorpay!.open(options);

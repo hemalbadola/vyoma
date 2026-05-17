@@ -28,6 +28,13 @@ function createRazorpayClient(): Razorpay {
   })
 }
 
+/** Razorpay receipt: max 40 chars, alphanumeric (avoids API / checkout validation errors). */
+function sanitizeReceipt(raw: string, planId?: string): string {
+  const fallback = `vyoma${(planId ?? 'custom').replace(/[^a-z0-9]/gi, '')}${Date.now()}`
+  const cleaned = (raw || fallback).replace(/[^a-zA-Z0-9]/g, '')
+  return (cleaned || fallback).slice(0, 40)
+}
+
 async function resolveUid(req: Request): Promise<string | null> {
   const authHeader = req.headers.authorization
   if (!authHeader?.startsWith('Bearer ')) {
@@ -74,7 +81,10 @@ paymentRouter.post('/create-order', async (req, res) => {
     const order = await razorpay.orders.create({
       amount: Math.round(amountPaise),
       currency,
-      receipt: receipt || `vyoma_${planId ?? 'custom'}_${Date.now()}`,
+      receipt: sanitizeReceipt(
+        typeof receipt === 'string' ? receipt : '',
+        typeof planId === 'string' ? planId : undefined
+      ),
       notes: { planId: planId ?? '', uid: uid ?? '' },
     })
 

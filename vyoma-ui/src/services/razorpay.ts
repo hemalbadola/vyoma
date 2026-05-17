@@ -1,10 +1,27 @@
 import { RAZORPAY_CHECKOUT_CONFIG, RAZORPAY_CHECKOUT_METHODS } from '../config/razorpayCheckout'
 import type { PricingPlan } from '../components/landing/PaymentModal'
 import type { RazorpaySuccessResponse } from '../types/razorpay'
+import { buildOrderReceipt, buildRazorpayPrefill } from './razorpayPrefill'
 
 const HEROKU_API = 'https://vyoma-api-backend-9629c91b8aad.herokuapp.com/api'
-const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? HEROKU_API).replace(/\/$/, '')
-const KEY_ID = import.meta.env.VITE_RAZORPAY_KEY_ID ?? ''
+
+function resolveApiBase(): string {
+  const raw = (import.meta.env.VITE_API_BASE_URL ?? HEROKU_API).trim().replace(/\/$/, '')
+  try {
+    new URL(raw)
+    return raw
+  } catch {
+    return HEROKU_API
+  }
+}
+
+const API_BASE = resolveApiBase()
+const KEY_ID = (import.meta.env.VITE_RAZORPAY_KEY_ID ?? '').trim()
+
+function isMobileCheckout(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+}
 
 export type CreateOrderResponse = {
   order_id: string
@@ -44,7 +61,7 @@ export async function createOrder(
     headers,
     body: JSON.stringify({
       planId: plan.id,
-      receipt: `vyoma_${plan.id}_${Date.now()}`,
+      receipt: buildOrderReceipt(plan.id),
       uid: options?.uid,
     }),
   })
@@ -93,17 +110,35 @@ export function openRazorpayCheckout(params: {
 }) {
   assertCheckoutReady()
 
+  const key = (params.order.key_id || KEY_ID).trim()
+  const orderId = params.order.order_id?.trim() ?? ''
+  if (!orderId || !/^order_[A-Za-z0-9]+$/.test(orderId)) {
+    throw new Error('Invalid payment order from server. Try again.')
+  }
+  if (!/^rzp_(test|live)_/.test(key)) {
+    throw new Error('Invalid Razorpay key from server. Check backend configuration.')
+  }
+
+  const prefill = buildRazorpayPrefill(params.prefill)
+  const mobile = isMobileCheckout()
+
+  const amount = Number(params.order.amount)
+  if (!Number.isFinite(amount) || amount < 100) {
+    throw new Error('Invalid payment amount from server.')
+  }
+
   const rzp = new window.Razorpay!({
-    key: params.order.key_id || KEY_ID,
-    amount: params.order.amount,
-    currency: params.order.currency,
+    key,
+    amount,
+    currency: params.order.currency || 'INR',
     name: 'VYOMA',
     description: `${params.plan.name} subscription`,
-    order_id: params.order.order_id,
-    prefill: params.prefill,
+    order_id: orderId,
+    ...(prefill ? { prefill } : {}),
     theme: { color: '#d4af37' },
-    config: { ...RAZORPAY_CHECKOUT_CONFIG },
     method: { ...RAZORPAY_CHECKOUT_METHODS },
+    // Advanced display.hide breaks UPI on some mobile WebKit builds.
+    ...(!mobile ? { config: { ...RAZORPAY_CHECKOUT_CONFIG } } : {}),
     handler: params.onSuccess,
     modal: {
       ondismiss: params.onDismiss,
