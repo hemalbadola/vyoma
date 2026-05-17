@@ -8,34 +8,15 @@ initFirebaseAdmin();
 
 let geminiKeyIndex = 0;
 
-function getNextGeminiKey(): string {
+function getGeminiKeys(): string[] {
   const envKeys = process.env.GEMINI_API_KEYS || '';
-  let keys = envKeys.split(',').map((k: string) => k.trim()).filter((k: string) => k.length > 0);
-  
+  return envKeys.split(',').map((k: string) => k.trim()).filter((k: string) => k.length > 0);
+}
+
+function getNextGeminiKey(): string {
+  const keys = getGeminiKeys();
   if (keys.length === 0) {
-    // Fallback to initial hardcoded set if environment variables are not yet configured in Heroku Dashboard
-    keys = [
-      'REDACTED',
-      'REDACTED',
-      'REDACTED',
-      'REDACTED',
-      'REDACTED',
-      'REDACTED',
-      'REDACTED',
-      'REDACTED',
-      'REDACTED',
-      'REDACTED',
-      'REDACTED',
-      'REDACTED',
-      'REDACTED',
-      'REDACTED',
-      'REDACTED',
-      'REDACTED',
-      'REDACTED',
-      'REDACTED',
-      'REDACTED',
-      'REDACTED',
-    ];
+    throw new Error('GEMINI_API_KEYS not configured on server');
   }
 
   if (geminiKeyIndex >= keys.length) {
@@ -44,8 +25,8 @@ function getNextGeminiKey(): string {
 
   const key = keys[geminiKeyIndex];
   geminiKeyIndex = (geminiKeyIndex + 1) % keys.length;
-  
-  console.log(`[Gemini Rotator] Executed key index \${geminiKeyIndex - 1}`);
+
+  console.log(`[Gemini Rotator] Using key index ${geminiKeyIndex === 0 ? keys.length - 1 : geminiKeyIndex - 1}`);
   return key;
 }
 
@@ -75,9 +56,14 @@ app.post('/api/gemini/generate', async (req, res) => {
         return res.status(401).json({ error: 'Unauthorized: Invalid token user' });
     }
 
+    const keys = getGeminiKeys();
+    if (keys.length === 0) {
+      return res.status(503).json({ error: 'Gemini API not configured on server' });
+    }
+
     // 3. Forward request to Gemini API with key retry on bad keys
     const { modelName = 'gemini-2.5-flash' } = req.body;
-    const maxRetries = 3;
+    const maxRetries = Math.min(3, keys.length);
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       const apiKey = getNextGeminiKey();
