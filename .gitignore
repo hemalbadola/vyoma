@@ -12,6 +12,8 @@ node_modules/
 !macos/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json
 !web/manifest.json
 !vyoma-ui/public/releases.json
+!config/subscription_plans.json
+!backend/config/subscription_plans.json
 !vyoma-ui/package-lock.json
 *_decoded.txt
 all_gemini_keys.txt

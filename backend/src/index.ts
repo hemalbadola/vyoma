@@ -1,14 +1,10 @@
 import express from 'express';
 import cors from 'cors';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import admin from 'firebase-admin';
+import { initFirebaseAdmin } from './firebaseAdmin';
+import { paymentRouter } from './payments/razorpayRoutes';
 
-// Initialize Firebase Admin with explicit projectId for Heroku
-// (applicationDefault() fails on Heroku — no GOOGLE_APPLICATION_CREDENTIALS file)
-// verifyIdToken() only needs projectId to validate JWTs against Google's public keys.
-admin.initializeApp({
-  projectId: 'vyoma-in',
-});
+initFirebaseAdmin();
 
 let geminiKeyIndex = 0;
 
@@ -205,8 +201,10 @@ app.use('/api/supermemory', async (req, res) => {
   }
 });
 
+app.use('/api', paymentRouter);
+
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok', version: '1.0.1' });
+    res.json({ status: 'ok', version: '1.0.2', payments: Boolean(process.env.RAZORPAY_KEY_ID) });
 });
 
 app.listen(port, () => {
