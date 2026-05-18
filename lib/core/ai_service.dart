@@ -238,11 +238,12 @@ class AIResponse {
 
 class AIService with ChangeNotifier {
   static const int _maxCalendarEventsInPrompt = 8;
-  static const int _maxRecentHistoryLogs = 4;
+  static const int _maxRecentHistoryLogs = 8; // raised from 4 — needed for pattern reading
   static const int _maxFactEntries = 16;
   static const int _maxDeferredTasksInPrompt = 5;
   static const int _maxTimelineEntriesInPrompt = 6;
   static const int _maxTimelineTextLen = 90;
+  static const int _maxTemporalEventsInPrompt = 10;
   static const String _supermemoryMetaKey = 'supermemory_meta';
 
   final MemoryService _memory;
@@ -459,7 +460,7 @@ class AIService with ChangeNotifier {
       'Execution: success=$success failure=$failure success_rate=$successRate%',
       if (topActions.isNotEmpty) 'Frequent action types: $topActions',
       if (journal.isNotEmpty)
-        'Journal trend: dominant_mood=$topMood entries=$journal.length',
+        'Journal trend: dominant_mood=$topMood entries=${journal.length}',
       'Deferred tasks: open=$openDeferred started=$startedDeferred completed=$completedDeferred',
     ].join(' | ');
   }
@@ -555,6 +556,26 @@ class AIService with ChangeNotifier {
       }
     }
     return compact;
+  }
+
+  /// Returns the last [limit] temporal behavior events (focus_start, focus_end,
+  /// nudge_sent, chat_turn) as plain maps for inclusion in the prompt.
+  /// Each entry: { eventType, timestamp, durationSeconds?, taskTitle? }
+  List<Map<String, dynamic>> _compactTemporalEvents(
+    TemporalBehaviorStore store,
+  ) {
+    final events = store.recentEvents(_maxTemporalEventsInPrompt);
+    return events
+        .map(
+          (e) => {
+            'eventType': e.eventType,
+            'timestamp': e.timestamp.toIso8601String(),
+            if (e.durationSeconds != null) 'durationSeconds': e.durationSeconds,
+            if (e.taskTitle != null && e.taskTitle!.isNotEmpty)
+              'taskTitle': _truncateText(e.taskTitle!, 80),
+          },
+        )
+        .toList();
   }
 
   String _getSystemPrompt(
@@ -783,7 +804,6 @@ Output as a clean bulleted list containing only the insights. Do not include int
     final sleep = prefs['sleep_time'] ?? "23:00";
 
     // Context Content
-
     final compactTimeline = _compactTimeline(conversationTimeline);
     final compactCurrentEvents = currentEvents
         .take(_maxCalendarEventsInPrompt)
@@ -801,6 +821,9 @@ Output as a clean bulleted list containing only the insights. Do not include int
         .take(_maxRecentHistoryLogs)
         .map((e) => e.toJson())
         .toList();
+
+    // FIX 1: include startedAt + completedAt so the model can reason about
+    // how long tasks have actually been open or stuck in "started".
     final compactDeferredTasks = _memory
         .getDeferredTasks(limit: _maxDeferredTasksInPrompt)
         .map(
@@ -809,9 +832,31 @@ Output as a clean bulleted list containing only the insights. Do not include int
             'promisedFor': t.promisedFor,
             'status': t.status.name,
             'createdAt': t.createdAt.toIso8601String(),
+            if (t.startedAt != null)
+              'startedAt': t.startedAt!.toIso8601String(),
+            if (t.completedAt != null)
+              'completedAt': t.completedAt!.toIso8601String(),
           },
         )
         .toList();
+
+    // FIX 2: pending_debriefs — events that ended but were never reviewed.
+    final rawPendingDebriefs = _memory.memory['pending_debriefs'];
+    final pendingDebriefs = (rawPendingDebriefs is List)
+        ? rawPendingDebriefs
+            .whereType<Map>()
+            .take(6)
+            .map((e) => {
+                  'title': e['title']?.toString() ?? '',
+                  'endTime': e['endTime']?.toString() ?? '',
+                })
+            .toList()
+        : <Map<String, String>>[];
+
+    // FIX 3: raw temporal events (focus_start, focus_end, nudge_sent, chat_turn)
+    // so the model can see actual session shape, not just the compressed string.
+    final compactTemporalEvents =
+        _compactTemporalEvents(temporalFingerprintStore);
 
     final behaviorPatternSummary = _buildBehaviorPatternSummary();
     unawaited(_syncBehaviorPatternToSupermemory(behaviorPatternSummary));
@@ -835,6 +880,11 @@ Output as a clean bulleted list containing only the insights. Do not include int
         "activity_log": (activityLog ?? []).take(6).toList(),
         "conversation_timeline": compactTimeline,
         "deferred_tasks": compactDeferredTasks,
+        // FIX 2: pending_debriefs now wired in
+        if (pendingDebriefs.isNotEmpty) "pending_debriefs": pendingDebriefs,
+        // FIX 3: raw temporal events now wired in
+        if (compactTemporalEvents.isNotEmpty)
+          "temporal_events": compactTemporalEvents,
         "behavior_pattern_summary": behaviorPatternSummary,
         if (segToggles['supermemory'] == true)
           "long_term_memories": longTermMemories,
