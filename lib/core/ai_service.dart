@@ -238,7 +238,7 @@ class AIResponse {
 
 class AIService with ChangeNotifier {
   static const int _maxCalendarEventsInPrompt = 8;
-  static const int _maxRecentHistoryLogs = 8; // raised from 4 — needed for pattern reading
+  static const int _maxRecentHistoryLogs = 8;
   static const int _maxFactEntries = 16;
   static const int _maxDeferredTasksInPrompt = 5;
   static const int _maxTimelineEntriesInPrompt = 6;
@@ -344,32 +344,166 @@ class AIService with ChangeNotifier {
     return hasMetricWord && hasManipulationVerb;
   }
 
-  bool _needsCalendarActionSchema(
+  // ─────────────────────────────────────────────
+  // TOOLKIT RESOLUTION
+  // Returns the minimal set of AIActionTypes needed for this turn.
+  // Only these types will be described in the system prompt schema block.
+  // ─────────────────────────────────────────────
+
+  /// Inspects the user's message and the last VYOMA turn to decide which
+  /// action types to surface. Returns an empty set for pure-chat turns so
+  /// the model isn't tempted to emit actions it doesn't need.
+  Set<AIActionType> _resolveActiveToolkit(
     String userText,
     List<Map<String, dynamic>> compactTimeline,
   ) {
     final lower = userText.toLowerCase();
-    final explicit = RegExp(
-      r'\b(schedule|plan|calendar|event|remind|reminder|notify|timetable|reschedule|delete|move|add|create|class|classes|slot)\b',
-    ).hasMatch(lower);
-    if (explicit) return true;
+    final toolkit = <AIActionType>{};
 
-    final confirmation = RegExp(
-      r'\b(do it|go ahead|yes|yep|yeah|schedule them|add them|do that|please do)\b',
-    ).hasMatch(lower);
-    if (!confirmation) return false;
+    // ── calendar create ──────────────────────────────────────────────────
+    if (RegExp(
+      r'\b(schedule|plan|add|create|set up|block out|book)\b',
+    ).hasMatch(lower)) {
+      toolkit.add(AIActionType.calendarCreate);
+    }
 
-    for (final item in compactTimeline.reversed) {
-      final sender = (item['sender'] ?? '').toString().toUpperCase();
-      final text = (item['text'] ?? '').toString().toLowerCase();
-      if (sender != 'VYOMA') continue;
-      if (RegExp(
-        r'\b(schedule|scheduled|calendar|event|class|classes|timetable|reminder)\b',
-      ).hasMatch(text)) {
-        return true;
+    // ── calendar move ────────────────────────────────────────────────────
+    if (RegExp(
+      r'\b(reschedule|move|shift|postpone|push|delay)\b',
+    ).hasMatch(lower)) {
+      toolkit.add(AIActionType.calendarMove);
+    }
+
+    // ── calendar delete ──────────────────────────────────────────────────
+    if (RegExp(
+      r'\b(delete|remove|cancel|clear)\b',
+    ).hasMatch(lower)) {
+      toolkit.add(AIActionType.calendarDelete);
+    }
+
+    // ── timetable ────────────────────────────────────────────────────────
+    if (RegExp(
+      r'\b(timetable|class|classes|lecture|lectures|slot|semester|weekly)\b',
+    ).hasMatch(lower)) {
+      toolkit
+        ..add(AIActionType.timetableReplaceDay)
+        ..add(AIActionType.timetableClearDay);
+    }
+
+    // ── reminder ─────────────────────────────────────────────────────────
+    if (RegExp(
+      r'\b(remind|reminder|notify|alert|notification|ping)\b',
+    ).hasMatch(lower)) {
+      toolkit.add(AIActionType.reminderCreate);
+    }
+
+    // ── metrics ──────────────────────────────────────────────────────────
+    if (RegExp(
+      r'\b(focus|distraction|metrics|effort|log|track|record)\b',
+    ).hasMatch(lower)) {
+      toolkit.add(AIActionType.metricsIncrement);
+    }
+
+    // ── confirmation carry-over ───────────────────────────────────────────
+    // "do it", "go ahead", "yes" — inherit the toolkit from the last VYOMA
+    // message so a one-word confirmation still works correctly.
+    final isConfirmation = RegExp(
+      r'^\s*(do it|go ahead|yes|yep|yeah|sure|ok|okay|schedule them|add them|do that|please do)\s*[.!]?\s*$',
+    ).hasMatch(lower);
+
+    if (isConfirmation && toolkit.isEmpty) {
+      for (final item in compactTimeline.reversed) {
+        final sender = (item['sender'] ?? '').toString().toUpperCase();
+        if (sender != 'VYOMA') continue;
+        final text = (item['text'] ?? '').toString().toLowerCase();
+
+        if (RegExp(r'\b(schedule|calendar|event|add)\b').hasMatch(text)) {
+          toolkit.add(AIActionType.calendarCreate);
+        }
+        if (RegExp(r'\b(reschedule|move)\b').hasMatch(text)) {
+          toolkit.add(AIActionType.calendarMove);
+        }
+        if (RegExp(r'\b(delete|cancel|remove)\b').hasMatch(text)) {
+          toolkit.add(AIActionType.calendarDelete);
+        }
+        if (RegExp(r'\b(timetable|class|classes)\b').hasMatch(text)) {
+          toolkit
+            ..add(AIActionType.timetableReplaceDay)
+            ..add(AIActionType.timetableClearDay);
+        }
+        if (RegExp(r'\b(remind|reminder|notify)\b').hasMatch(text)) {
+          toolkit.add(AIActionType.reminderCreate);
+        }
+        if (toolkit.isNotEmpty) break; // stop at first matching VYOMA turn
       }
     }
-    return false;
+
+    return toolkit;
+  }
+
+  // ─────────────────────────────────────────────
+  // SCHEMA BLOCK BUILDER
+  // Produces only the schema lines for the active toolkit.
+  // ─────────────────────────────────────────────
+
+  /// Builds the ACTION TYPES block injected into the system prompt.
+  /// Only emits schema lines for [toolkit]. When [toolkit] is empty the
+  /// block collapses to a one-liner so the model knows actions are off.
+  String _buildActionSchemaBlock(
+    Set<AIActionType> toolkit,
+    String isoDateExample,
+  ) {
+    if (toolkit.isEmpty) {
+      return 'ACTION TYPES: None available for this turn. Emit actions: [].\n';
+    }
+
+    final buf = StringBuffer();
+    buf.writeln('ACTION TYPES (inside "actions" array):');
+    buf.writeln(
+      'Each action MUST have "type" and "idempotency_key" (unique string).',
+    );
+
+    if (toolkit.contains(AIActionType.calendarCreate)) {
+      buf.writeln(
+        '- "calendar.create" — requires: title, start (ISO 8601), end (ISO 8601)',
+      );
+    }
+    if (toolkit.contains(AIActionType.calendarMove)) {
+      buf.writeln(
+        '- "calendar.move" — requires: target_event_id, start (new ISO 8601), end (new ISO 8601)',
+      );
+    }
+    if (toolkit.contains(AIActionType.calendarDelete)) {
+      buf.writeln(
+        '- "calendar.delete" — requires: target_event_id',
+      );
+    }
+    if (toolkit.contains(AIActionType.timetableReplaceDay)) {
+      buf.writeln(
+        '- "timetable.replace_day" — requires: weekday; put slot JSON in notes: '
+        '[{"dayOfWeek":"Monday","startTime":"08:00","endTime":"09:00","subject":"Math","venue":"Room"}]',
+      );
+    }
+    if (toolkit.contains(AIActionType.timetableClearDay)) {
+      buf.writeln(
+        '- "timetable.clear_day" — requires: weekday',
+      );
+    }
+    if (toolkit.contains(AIActionType.reminderCreate)) {
+      buf.writeln(
+        '- "reminder.create" — requires: title, start (ISO 8601)',
+      );
+    }
+    if (toolkit.contains(AIActionType.metricsIncrement)) {
+      buf.writeln(
+        '- "metrics.increment" — optional: scope (metric key)',
+      );
+    }
+
+    buf.writeln(
+      '\nAll datetime values MUST be full ISO 8601 (e.g., ${isoDateExample}T14:00:00).',
+    );
+    return buf.toString();
   }
 
   String _truncateText(String text, int maxLen) {
@@ -580,8 +714,11 @@ class AIService with ChangeNotifier {
 
   String _getSystemPrompt(
     ProductivityMetrics metrics, {
-    required bool includeCalendarSchema,
+    required Set<AIActionType> activeToolkit,
+    required String isoDateExample,
   }) {
+    final actionSchemaBlock = _buildActionSchemaBlock(activeToolkit, isoDateExample);
+
     return """
 {{VYOMA_PERSONA}}
 
@@ -624,32 +761,15 @@ OUTPUT FORMAT (MANDATORY — respond with ONLY this JSON, no markdown fences, no
 }
 
 ALLOWED INTENTS:
-- "chat.only" — pure conversation, no actions
-- "schedule.create" — create calendar events
-- "schedule.modify" — move/reschedule events
-- "schedule.delete" — cancel events
-- "timetable.update" — change weekly class schedule
-- "reminder.set" — create a notification reminder
-- "accountability.pact" — propose a social pact
-- "metrics.note" — adjust focus/effort metrics
+chat.only | schedule.create | schedule.modify | schedule.delete | timetable.update | reminder.set | accountability.pact | metrics.note
 
-ACTION TYPES (inside "actions" array):
-Each action object MUST have "type" and "idempotency_key" (generate a unique string).
-- "calendar.create" — requires: title, start (ISO 8601), end (ISO 8601)
-- "calendar.move" — requires: target_event_id, start (new ISO 8601), end (new ISO 8601)
-- "calendar.delete" — requires: target_event_id
-- "timetable.replace_day" — requires: weekday, and put slot data in notes as JSON
-- "timetable.clear_day" — requires: weekday
-- "reminder.create" — requires: title, start (ISO 8601)
-- "metrics.increment" — optional: scope (metric key)
-
+$actionSchemaBlock
 SAFETY RULES:
 1. Be conservative. Fewer precise actions > many fuzzy ones. Max 5 actions.
 2. For destructive actions (delete, clear_day), ALWAYS set requires_confirmation: true.
 3. If ambiguous, ask a clarifying question and set actions to [].
 4. NEVER claim "I have scheduled X" — say "I can schedule X" or "I've prepared a change".
 5. Use only provided time fields; never invent prior-day claims.
-6. All datetime values MUST be full ISO 8601 (e.g., {{DATE_FORMATTED_ISO}}T14:00:00).
 
 TONE: Follow VYOMA_PERSONA for user_visible_response. JSON structure is still mandatory.
 
@@ -806,1095 +926,4 @@ Output as a clean bulleted list containing only the insights. Do not include int
     // Context Content
     final compactTimeline = _compactTimeline(conversationTimeline);
     final compactCurrentEvents = currentEvents
-        .take(_maxCalendarEventsInPrompt)
-        .toList();
-
-    final temporalFingerprintStore = TemporalBehaviorStore(_memory);
-    final temporalSnapshot = TemporalContextBuilder(_memory).build(
-      calendarEventStrings: compactCurrentEvents,
-      behaviorStore: temporalFingerprintStore,
-      focusMinutesSession: metrics.focusMinutes,
-    );
-
-    final compactRelevantLogs = _memory
-        .getRelevantHistory("")
-        .take(_maxRecentHistoryLogs)
-        .map((e) => e.toJson())
-        .toList();
-
-    // FIX 1: include startedAt + completedAt so the model can reason about
-    // how long tasks have actually been open or stuck in "started".
-    final compactDeferredTasks = _memory
-        .getDeferredTasks(limit: _maxDeferredTasksInPrompt)
-        .map(
-          (t) => {
-            'description': _truncateText(t.description, 120),
-            'promisedFor': t.promisedFor,
-            'status': t.status.name,
-            'createdAt': t.createdAt.toIso8601String(),
-            if (t.startedAt != null)
-              'startedAt': t.startedAt!.toIso8601String(),
-            if (t.completedAt != null)
-              'completedAt': t.completedAt!.toIso8601String(),
-          },
-        )
-        .toList();
-
-    // FIX 2: pending_debriefs — events that ended but were never reviewed.
-    final rawPendingDebriefs = _memory.memory['pending_debriefs'];
-    final pendingDebriefs = (rawPendingDebriefs is List)
-        ? rawPendingDebriefs
-            .whereType<Map>()
-            .take(6)
-            .map((e) => {
-                  'title': e['title']?.toString() ?? '',
-                  'endTime': e['endTime']?.toString() ?? '',
-                })
-            .toList()
-        : <Map<String, String>>[];
-
-    // FIX 3: raw temporal events (focus_start, focus_end, nudge_sent, chat_turn)
-    // so the model can see actual session shape, not just the compressed string.
-    final compactTemporalEvents =
-        _compactTemporalEvents(temporalFingerprintStore);
-
-    final behaviorPatternSummary = _buildBehaviorPatternSummary();
-    unawaited(_syncBehaviorPatternToSupermemory(behaviorPatternSummary));
-
-    final Map<String, dynamic> dataInput = {
-      "user_input": userText,
-      "user_profile": {
-        "name": "User",
-        "main_goal": context.mainGoal,
-        "metrics": metrics.toJson(),
-        // Only include if segment is enabled
-        if (segToggles['identity'] == true)
-          "identity": _memory.getSegment('identity'),
-        if (segToggles['preferences'] == true) "preferences": prefs,
-        if (segToggles['protocol'] == true) "protocol": protocol,
-        if (segToggles['facts'] == true)
-          "facts": _compactFacts(_memory.getFacts()),
-      },
-      "agent_memory": {
-        if (segToggles['history'] == true) "recent_logs": compactRelevantLogs,
-        "activity_log": (activityLog ?? []).take(6).toList(),
-        "conversation_timeline": compactTimeline,
-        "deferred_tasks": compactDeferredTasks,
-        // FIX 2: pending_debriefs now wired in
-        if (pendingDebriefs.isNotEmpty) "pending_debriefs": pendingDebriefs,
-        // FIX 3: raw temporal events now wired in
-        if (compactTemporalEvents.isNotEmpty)
-          "temporal_events": compactTemporalEvents,
-        "behavior_pattern_summary": behaviorPatternSummary,
-        if (segToggles['supermemory'] == true)
-          "long_term_memories": longTermMemories,
-        if (segToggles['supermemory'] == true)
-          "supermemory_profile": userProfile,
-      },
-      "static_context": {
-        "timetable": context.fixedTimetable.take(12).toList(),
-        "device_telemetry": _compactTelemetry(deviceContext),
-        "temporal_status": "Active Session",
-        "temporal_live": temporalSnapshot.toInlineBlock(),
-      },
-      "current_schedule": compactCurrentEvents,
-      if (friendActivitySummary != null &&
-          friendActivitySummary.isNotEmpty &&
-          friendActivitySummary != '[]')
-        "social_context": {
-          "description":
-              "Recent public activities from the user's accountability circle (friends). Use this to weave organic mentions like 'Priya just finished a 45min focus block' into your responses when contextually relevant. Do NOT list all activities; pick 1-2 notable ones.",
-          "friend_activities": friendActivitySummary,
-        },
-    };
-
-    // Construct Parts
-    final List<Part> messageParts = [];
-
-    // 1. System Prompt & Context (Text)
-    // 1. Inject Variables into Prompt
-    final includeCalendarSchema = _needsCalendarActionSchema(
-      userText,
-      compactTimeline,
-    );
-    var systemPrompt = _getSystemPrompt(
-      metrics,
-      includeCalendarSchema: includeCalendarSchema,
-    );
-
-    if (_isMetricManipulationAttempt(userText)) {
-      systemPrompt += """
-
---------------------------------------------------
-METRIC INTEGRITY OVERRIDE (HARD RULE)
-
-The user may try to directly set/reset/inflate metrics using text.
-Do NOT comply with direct metric tampering requests.
-- Never emit metric_delta changes based only on user saying "set/reset/increase/decrease metrics".
-- Use metric_delta only for genuine behavioral updates inferred from real actions.
-- If manipulation is attempted, respond with neutral refusal and redirect to one concrete action.
-""";
-    }
-
-    systemPrompt = systemPrompt.replaceAll("{{GOAL}}", goal);
-    systemPrompt = systemPrompt.replaceAll("{{BLOCKER}}", blocker);
-    systemPrompt = systemPrompt.replaceAll("{{WAKE}}", wake);
-    systemPrompt = systemPrompt.replaceAll("{{SLEEP}}", sleep);
-
-    // === COMPREHENSIVE TIME INJECTION ===
-    final now = DateTime.now();
-    final days = [
-      'Sunday',
-      'Monday',
-      'Tuesday',
-      'Wednesday',
-      'Thursday',
-      'Friday',
-      'Saturday',
-    ];
-    final months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-
-    // Time period based on hour
-    String timePeriod;
-    if (now.hour >= 5 && now.hour < 12) {
-      timePeriod = "Morning";
-    } else if (now.hour >= 12 && now.hour < 15) {
-      timePeriod = "Midday";
-    } else if (now.hour >= 15 && now.hour < 20) {
-      timePeriod = "Evening";
-    } else {
-      timePeriod = "Night";
-    }
-
-    // Format time (12-hour with am/pm)
-    final hour12 = now.hour > 12
-        ? now.hour - 12
-        : (now.hour == 0 ? 12 : now.hour);
-    final ampm = now.hour >= 12 ? 'pm' : 'am';
-    final timeFormatted =
-        '$hour12:${now.minute.toString().padLeft(2, '0')}$ampm';
-
-    // Format date
-    final dateFormatted =
-        '${days[now.weekday % 7]}, ${months[now.month - 1]} ${now.day}, ${now.year}';
-    // ISO date for AI prompt (yyyy-MM-dd) — used in calendar action examples
-    final dateFormattedISO =
-        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-
-    // Calculate time gap since last interaction
-    String timeGap = "First message of session";
-    String lastInteraction = "Session start";
-    if (_lastInteractionTime != null) {
-      final gap = now.difference(_lastInteractionTime!);
-      if (gap.inMinutes < 2) {
-        timeGap = "Just now (< 2 min)";
-      } else if (gap.inMinutes < 60) {
-        timeGap = "${gap.inMinutes} minutes ago";
-      } else if (gap.inHours < 24) {
-        final hrs = gap.inHours;
-        final mins = gap.inMinutes % 60;
-        timeGap =
-            "$hrs hour${hrs > 1 ? 's' : ''}${mins > 0 ? ' $mins min' : ''} ago";
-      } else {
-        timeGap = "${gap.inDays} day${gap.inDays > 1 ? 's' : ''} ago";
-      }
-      // Format last interaction time
-      final lastHour12 = _lastInteractionTime!.hour > 12
-          ? _lastInteractionTime!.hour - 12
-          : (_lastInteractionTime!.hour == 0 ? 12 : _lastInteractionTime!.hour);
-      final lastAmpm = _lastInteractionTime!.hour >= 12 ? 'pm' : 'am';
-      lastInteraction =
-          '$lastHour12:${_lastInteractionTime!.minute.toString().padLeft(2, '0')}$lastAmpm';
-    }
-
-    // Build readable recent message timeline for stronger temporal grounding.
-    String recentMessageTimes = "No prior non-system messages.";
-    if (compactTimeline.isNotEmpty) {
-      final lines = <String>[];
-      for (final item in compactTimeline) {
-        final sender = (item['sender'] ?? 'UNK').toString();
-        final text = (item['text'] ?? '')
-            .toString()
-            .replaceAll('\n', ' ')
-            .trim();
-        final snippet = text.length > 80 ? '${text.substring(0, 80)}...' : text;
-        final rawTs = item['timestamp']?.toString() ?? '';
-
-        String formattedTs = rawTs;
-        try {
-          final ts = DateTime.parse(rawTs).toLocal();
-          formattedTs =
-              '${ts.year}-${ts.month.toString().padLeft(2, '0')}-${ts.day.toString().padLeft(2, '0')} ${ts.hour.toString().padLeft(2, '0')}:${ts.minute.toString().padLeft(2, '0')}:${ts.second.toString().padLeft(2, '0')}';
-        } catch (_) {}
-
-        lines.add('[$formattedTs] $sender: $snippet');
-      }
-      recentMessageTimes = lines.join('\n');
-    }
-
-    // Inject all time variables
-    final currentTimestamp =
-        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
-    systemPrompt = systemPrompt.replaceAll(
-      "{{CURRENT_TIME}}",
-      currentTimestamp,
-    );
-    systemPrompt = systemPrompt.replaceAll(
-      "{{DAY_OF_WEEK}}",
-      days[now.weekday % 7],
-    );
-    systemPrompt = systemPrompt.replaceAll("{{DATE_FORMATTED}}", dateFormatted);
-    systemPrompt = systemPrompt.replaceAll(
-      "{{DATE_FORMATTED_ISO}}",
-      dateFormattedISO,
-    );
-    systemPrompt = systemPrompt.replaceAll("{{TIME_FORMATTED}}", timeFormatted);
-    systemPrompt = systemPrompt.replaceAll("{{TIME_PERIOD}}", timePeriod);
-    systemPrompt = systemPrompt.replaceAll(
-      "{{LAST_INTERACTION}}",
-      lastInteraction,
-    );
-    systemPrompt = systemPrompt.replaceAll("{{TIME_GAP}}", timeGap);
-    systemPrompt = systemPrompt.replaceAll(
-      "{{RECENT_MESSAGE_TIMES}}",
-      recentMessageTimes,
-    );
-
-    // Update last interaction time for next message
-    _lastInteractionTime = now;
-
-    // Inject Evidence into Prompt Text for stronger visibility
-    String evidenceStr = (activityLog != null && activityLog.isNotEmpty)
-        ? jsonEncode(activityLog)
-        : "NO RECENT ACTIVITY RECORDED.";
-    systemPrompt = systemPrompt.replaceAll("{{EVIDENCE}}", evidenceStr);
-
-    systemPrompt = systemPrompt.replaceAll(
-      '{{VYOMA_PERSONA}}',
-      TemporalContextBuilder(_memory).buildVyomaPersonaBlock(temporalSnapshot),
-    );
-
-    final contextJson = jsonEncode(dataInput);
-    _logDebug(
-      'Prompt/context size chars -> prompt: ${systemPrompt.length}, context: ${contextJson.length}',
-    );
-
-    messageParts.add(
-      TextPart("SYSTEM_PROMPT: $systemPrompt\n\nCONTEXT_DATA: $contextJson"),
-    );
-
-    // 2. Image (if present) - add BEFORE user question for proper vision processing
-    if (imageBytes != null) {
-      // Gemini expects 'image/jpeg' or 'image/png'. Assuming png/jpeg from picker.
-      messageParts.add(DataPart('image/jpeg', imageBytes));
-      // Add user's question about the image explicitly
-      messageParts.add(
-        TextPart(
-          "USER QUESTION ABOUT THIS IMAGE: $userText\n\nDescribe what you see in this image and respond to the user's question.",
-        ),
-      );
-    } else {
-      // No image, just add user input
-      messageParts.add(TextPart("USER_INPUT: $userText"));
-    }
-
-    // 0. VISION HIGHJACK: If image exists, prioritize Gemini
-    if (imageBytes != null) {
-      _logDebug(
-        "Image detected! Prioritizing Gemini 2.5 Flash for superior vision.",
-      );
-      final geminiRes = await _attemptGeminiRequest(messageParts, imageBytes);
-      if (geminiRes != null) return geminiRes;
-
-      _logDebug("Gemini Vision failed! Falling back to NIM Llama Vision.");
-    }
-
-    String? nvidiaErr;
-    String? geminiErr;
-
-    // 1. Try Nvidia NIM (PRIMARY)
-    try {
-      _logDebug("Trying Nvidia NIM...");
-      final textPrompt =
-          "SYSTEM_PROMPT: $systemPrompt\n\nCONTEXT_DATA: $contextJson\n\nUSER_INPUT: $userText";
-      final response = await _callNvidia(
-        textPrompt,
-        "",
-        imageBytes: imageBytes,
-      );
-
-      final parsed = _parseProtocolResponse(response);
-      if (_streamTokenCallback != null) {
-        for (final word in parsed.response.split(' ')) {
-          _streamTokenCallback!('$word ');
-          await Future.delayed(const Duration(milliseconds: 18));
-        }
-      }
-      return parsed;
-    } catch (e) {
-      debugPrint("Nvidia Error: $e");
-      _logDebug("NVIDIA ERROR: $e");
-      nvidiaErr = e.toString();
-    }
-
-    _logDebug("NVIDIA FAILED. ENGAGING GEMINI FALLBACK.");
-
-    // 2. Try Gemini (SECONDARY)
-    final geminiRes = await _attemptGeminiRequest(
-      messageParts,
-      imageBytes,
-      onError: (err) => geminiErr = err,
-    );
-    if (geminiRes != null) return geminiRes;
-
-    return AIResponse(
-      response: _buildAllProvidersFailedMessage(
-        nvidiaErr: nvidiaErr,
-        geminiErr: geminiErr,
-      ),
-      actions: [],
-    );
-  }
-
-  /// Builds a user-visible message that names which provider broke and why,
-  /// so the user knows what to renew/fix instead of seeing "HQ IS UNREACHABLE".
-  String _buildAllProvidersFailedMessage({
-    String? nvidiaErr,
-    String? geminiErr,
-  }) {
-    final reasons = <String>[];
-
-    if (geminiErr != null) {
-      final lower = geminiErr.toLowerCase();
-      if (lower.contains('api key expired') ||
-          lower.contains('api_key_invalid') ||
-          lower.contains('invalid api key')) {
-        reasons.add('Gemini API key expired — renew it in Google AI Studio.');
-      } else if (lower.contains('quota') || lower.contains('429')) {
-        reasons.add('Gemini quota exhausted — try again later.');
-      } else if (lower.contains('timeout')) {
-        reasons.add('Gemini request timed out.');
-      } else if (lower.contains('413') || lower.contains('payload too large')) {
-        reasons.add('Gemini payload too large — image too big.');
-      } else if (lower.contains('http 5') ||
-          lower.contains('non-json') ||
-          lower.contains('gateway')) {
-        reasons.add('Gemini backend gateway error: ${_shortErr(geminiErr)}');
-      } else {
-        reasons.add('Gemini failed: ${_shortErr(geminiErr)}');
-      }
-    }
-
-    if (nvidiaErr != null) {
-      final lower = nvidiaErr.toLowerCase();
-      if (lower.contains('end of life') || lower.contains('410')) {
-        reasons.add('Nvidia NIM model retired — update model name.');
-      } else if (lower.contains('413') || lower.contains('payload too large')) {
-        reasons.add('Nvidia rejected the image — file still too large.');
-      } else if (lower.contains('401') || lower.contains('403')) {
-        reasons.add('Nvidia NIM unauthorized — check backend API key.');
-      } else {
-        reasons.add('Nvidia failed: ${_shortErr(nvidiaErr)}');
-      }
-    }
-
-    if (reasons.isEmpty) {
-      return 'ALL SYSTEMS OFFLINE. HQ IS UNREACHABLE.';
-    }
-
-    return 'ALL SYSTEMS OFFLINE.\n\n${reasons.join('\n')}';
-  }
-
-  String _shortErr(String err) {
-    final cleaned = err.replaceAll(RegExp(r'\s+'), ' ').trim();
-    return cleaned.length > 140 ? '${cleaned.substring(0, 140)}…' : cleaned;
-  }
-
-  /// Wraps sendMessage to stream tokens via [onToken] callback.
-  Future<AIResponse> sendMessageWithStream({
-    required String userText,
-    required List<String> calendarEvents,
-    required ProductivityMetrics metrics,
-    required StaticContext staticContext,
-    required Map<String, dynamic> deviceTelemetry,
-    Uint8List? imageBytes,
-    List<Map<String, dynamic>>? conversationTimeline,
-    String? friendActivitySummary,
-    required void Function(String token) onToken,
-  }) async {
-    _streamTokenCallback = onToken;
-    try {
-      return await sendMessage(
-        userText,
-        calendarEvents,
-        metrics,
-        staticContext,
-        deviceTelemetry,
-        imageBytes: imageBytes,
-        conversationTimeline: conversationTimeline,
-        friendActivitySummary: friendActivitySummary,
-      );
-    } finally {
-      _streamTokenCallback = null;
-    }
-  }
-
-  void Function(String token)? _streamTokenCallback;
-
-  Future<AIResponse?> _attemptGeminiRequest(
-    List<Part> messageParts,
-    Uint8List? imageBytes, {
-    void Function(String error)? onError,
-  }) async {
-    try {
-      _logDebug("Trying Gemini backend...");
-
-      final response = await _callGeminiDirect("", messageParts, imageBytes)
-          .timeout(
-            const Duration(seconds: 45),
-            onTimeout: () {
-              throw Exception('Gemini request timeout');
-            },
-          );
-
-      if (response != null) {
-        _logDebug("Gemini Request SUCCESS");
-
-        final parsed = _parseProtocolResponse(response);
-        if (_streamTokenCallback != null) {
-          for (final word in parsed.response.split(' ')) {
-            _streamTokenCallback!('$word ');
-            await Future.delayed(const Duration(milliseconds: 18));
-          }
-        }
-        return parsed;
-      }
-    } catch (e) {
-      _logDebug("Gemini Error: $e");
-      onError?.call(e.toString());
-    }
-    return null;
-  }
-
-  Future<String?> _callGeminiDirect(
-    String apiKey,
-    List<Part> messageParts,
-    Uint8List? imageBytes,
-  ) async {
-    final idToken = await _requireIdToken();
-
-    final url = Uri.parse(
-      'https://vyoma-api-backend-9629c91b8aad.herokuapp.com/api/gemini/generate',
-    );
-
-    // Build parts for JSON request
-    final List<Map<String, dynamic>> parts = [];
-
-    for (final part in messageParts) {
-      if (part is TextPart) {
-        parts.add({'text': part.text});
-      } else if (part is DataPart) {
-        parts.add({
-          'inlineData': {
-            'mimeType': 'image/jpeg',
-            'data': base64Encode(imageBytes!),
-          },
-        });
-      }
-    }
-
-    final body = jsonEncode({
-      'modelName': 'gemini-2.5-flash',
-      'payload': {
-        'contents': [
-          {'role': 'user', 'parts': parts},
-        ],
-        'safetySettings': [
-          {'category': 'HARM_CATEGORY_HARASSMENT', 'threshold': 'BLOCK_NONE'},
-          {'category': 'HARM_CATEGORY_HATE_SPEECH', 'threshold': 'BLOCK_NONE'},
-          {
-            'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
-            'threshold': 'BLOCK_NONE',
-          },
-          {
-            'category': 'HARM_CATEGORY_DANGEROUS_CONTENT',
-            'threshold': 'BLOCK_NONE',
-          },
-        ],
-        'generationConfig': {'maxOutputTokens': 16384},
-      },
-    });
-
-    final response = await http.post(
-      url,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $idToken',
-      },
-      body: body,
-    );
-
-    if (response.statusCode == 200) {
-      final data = _safeJsonDecode(response.body);
-      if (data == null) {
-        throw Exception(
-          'Gemini backend returned non-JSON 200 response (gateway issue): '
-          '${_summarizeNonJson(response.body)}',
-        );
-      }
-      if (data['candidates'] != null &&
-          (data['candidates'] as List).isNotEmpty) {
-        final candidate = data['candidates'][0];
-        final content = candidate['content'];
-        if (content != null &&
-            content['parts'] != null &&
-            (content['parts'] as List).isNotEmpty) {
-          final text = content['parts'][0]['text'];
-          return text;
-        } else {
-          debugPrint("Gemini Empty/Safety Response: ${response.body}");
-          throw Exception(
-            "Gemini returned no content (Check logs for safety/finishReason)",
-          );
-        }
-      }
-    } else {
-      final data = _safeJsonDecode(response.body);
-      if (data == null) {
-        // Backend gateway returned an HTML/text error page (e.g. 413, 502).
-        throw Exception(
-          'Gemini backend HTTP ${response.statusCode}: '
-          '${_summarizeNonJson(response.body)}',
-        );
-      }
-      final msg = data['error'] is String
-          ? data['error']
-          : data['error']?['message'] ?? 'Unknown Gemini API error';
-      if (response.statusCode == 503) {
-        throw Exception("Gemini Overloaded: $msg");
-      }
-      throw Exception(msg);
-    }
-    return null;
-  }
-
-  Map<String, dynamic>? _safeJsonDecode(String body) {
-    try {
-      final v = jsonDecode(body);
-      return v is Map<String, dynamic> ? v : null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  String _summarizeNonJson(String body) {
-    final flat = body
-        .replaceAll(RegExp(r'<[^>]+>'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-    return flat.length > 160 ? '${flat.substring(0, 160)}…' : flat;
-  }
-
-  Future<String> _callNvidia(
-    String textPrompt,
-    String apiKey, {
-    Uint8List? imageBytes,
-  }) async {
-    final idToken = await _requireIdToken();
-
-    final url = Uri.parse(
-      'https://vyoma-api-backend-9629c91b8aad.herokuapp.com/api/nvidia/generate',
-    );
-
-    final List<Map<String, dynamic>> messages = [];
-
-    if (imageBytes != null) {
-      messages.add({
-        'role': 'user',
-        'content': [
-          {'type': 'text', 'text': textPrompt},
-          {
-            'type': 'image_url',
-            'image_url': {
-              'url': 'data:image/jpeg;base64,${base64Encode(imageBytes)}',
-            },
-          },
-        ],
-      });
-    } else {
-      messages.add({'role': 'user', 'content': textPrompt});
-    }
-
-    final modelName = imageBytes != null
-        ? 'meta/llama-3.2-11b-vision-instruct'
-        : 'meta/llama-3.3-70b-instruct';
-
-    final response = await http
-        .post(
-          url,
-          headers: {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Authorization': 'Bearer $idToken',
-          },
-          body: jsonEncode({'model': modelName, 'messages': messages}),
-        )
-        .timeout(const Duration(seconds: 15));
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      debugPrint(
-        "NVIDIA RAW FETCH: ${data['choices'][0]['message']['content']}",
-      );
-      return data['choices'][0]['message']['content'];
-    } else {
-      throw Exception(
-        'Nvidia Failed [${response.statusCode}]: ${response.body}',
-      );
-    }
-  }
-
-  Future<String> _requireIdToken() async {
-    final auth = FirebaseAuth.instance;
-    User? user = auth.currentUser;
-    if (user == null) {
-      try {
-        final credential = await auth.signInAnonymously();
-        user = credential.user;
-      } on FirebaseAuthException catch (e) {
-        throw Exception('Authentication unavailable (${e.code}).');
-      }
-    }
-    if (user == null) {
-      throw Exception('Authentication unavailable.');
-    }
-    final token = await user.getIdToken(true);
-    if (token == null || token.isEmpty) {
-      throw Exception('Authentication token unavailable.');
-    }
-    return token;
-  }
-
-  /// Resize + re-encode an image so it fits inside provider/gateway limits.
-  ///
-  /// We keep generous resolution (long edge 2048px, JPEG q=88) so Gemini can
-  /// actually read small text on a timetable photo. Backend body limit is
-  /// 25MB which is well above this. Skips work entirely for already-small
-  /// images. Runs in a background isolate so it doesn't block the UI.
-  Future<Uint8List> _downscaleImageForUpload(Uint8List bytes) async {
-    const int maxDim = 2048;
-    const int skipIfUnderBytes = 1500 * 1024; // 1.5MB — already plenty small
-
-    if (bytes.length <= skipIfUnderBytes) return bytes;
-
-    try {
-      final result = await compute(_decodeResizeEncodeJpeg, {
-        'bytes': bytes,
-        'maxDim': maxDim,
-        'quality': 88,
-      });
-      _logDebug(
-        'Image downscaled: ${(bytes.length / 1024).toStringAsFixed(0)}KB → '
-        '${(result.length / 1024).toStringAsFixed(0)}KB',
-      );
-      return result;
-    } catch (e) {
-      _logDebug('Image downscale failed, sending original: $e');
-      return bytes;
-    }
-  }
-
-  /// Attempts JSON protocol parse first, falls back to legacy XML.
-  AIResponse _parseProtocolResponse(String responseText) {
-    // Try to extract JSON from the response (model may wrap it in markdown fences)
-    final jsonMatch = RegExp(
-      r'\{[\s\S]*"version"[\s\S]*"vyoma-action-v1"[\s\S]*\}',
-    ).firstMatch(responseText);
-    if (jsonMatch != null) {
-      try {
-        final jsonStr = jsonMatch.group(0)!;
-        final json = jsonDecode(jsonStr) as Map<String, dynamic>;
-        final proposal = AIActionProposal.fromJson(json);
-        _logDebug(
-          'Protocol v1 parse SUCCESS: ${proposal.intent.value}, ${proposal.actions.length} actions',
-        );
-        // Bridge: convert AIActionProposal → legacy AIResponse for the current ViewModel.
-        // This bridge will be removed when ViewModel is fully migrated.
-        return AIResponse(
-          response: proposal.userVisibleResponse,
-          actions: proposal.actions
-              .map(
-                (a) => AIResponseAction(
-                  type: _mapActionTypeToLegacy(a.type),
-                  summary: a.title,
-                  startTime: a.startTime?.toIso8601String(),
-                  durationMinutes: a.startTime != null && a.endTime != null
-                      ? a.endTime!.difference(a.startTime!).inMinutes
-                      : null,
-                ),
-              )
-              .toList(),
-        );
-      } on VyomaProtocolException catch (e) {
-        _logDebug('Protocol parse error (falling back to XML): $e');
-      } catch (e) {
-        _logDebug('JSON decode error (falling back to XML): $e');
-      }
-    }
-    // Fallback to legacy XML parsing
-    return _parseXmlResponse(responseText);
-  }
-
-  String _mapActionTypeToLegacy(AIActionType type) {
-    switch (type) {
-      case AIActionType.calendarCreate:
-        return 'create';
-      case AIActionType.calendarMove:
-        return 'move';
-      case AIActionType.calendarDelete:
-        return 'delete';
-      case AIActionType.timetableReplaceDay:
-        return 'update_timetable';
-      case AIActionType.timetableClearDay:
-        return 'delete';
-      case AIActionType.reminderCreate:
-        return 'notify';
-      case AIActionType.metricsIncrement:
-        return 'none';
-    }
-  }
-
-  /// Returns the parsed AIActionProposal directly (for the new protocol path).
-  /// Returns null if the response is not valid v1 protocol JSON.
-  AIActionProposal? tryParseProposal(String responseText) {
-    final jsonMatch = RegExp(
-      r'\{[\s\S]*"version"[\s\S]*"vyoma-action-v1"[\s\S]*\}',
-    ).firstMatch(responseText);
-    if (jsonMatch == null) return null;
-    try {
-      final json = jsonDecode(jsonMatch.group(0)!) as Map<String, dynamic>;
-      return AIActionProposal.fromJson(json);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  AIResponse _parseXmlResponse(String responseText) {
-    debugPrint(
-      "--- PARSING AI XML ---\n$responseText\n-----------------------",
-    );
-
-    // Helper to extract content between XML tags
-    String? extractTag(String tag) {
-      final regExp = RegExp('<$tag>(.*?)</$tag>', dotAll: true);
-      final match = regExp.firstMatch(responseText);
-      return match?.group(1)?.trim();
-    }
-
-    String? extractInnerTag(String source, String tag) {
-      final regExp = RegExp('<$tag>(.*?)</$tag>', dotAll: true);
-      final match = regExp.firstMatch(source);
-      return match?.group(1)?.trim();
-    }
-
-    Map<String, String> parseXmlAttributes(String attrs) {
-      final out = <String, String>{};
-      final regExp = RegExp(r'(\w+)\s*=\s*"([^"]*)"');
-      for (final match in regExp.allMatches(attrs)) {
-        final key = (match.group(1) ?? '').trim();
-        final value = (match.group(2) ?? '').trim();
-        if (key.isNotEmpty) {
-          out[key] = value;
-        }
-      }
-      return out;
-    }
-
-    final verbal =
-        extractTag('verbal') ??
-        responseText.trim(); // Fallback to raw text if no tag
-    final thought = extractTag('thought');
-
-    // Parse Actions
-    List<AIResponseAction> actionsList = [];
-    final actionsStr = extractTag('actions');
-
-    AIResponseAction? inferActionFromText(String text) {
-      final cleaned = text.replaceAll('\n', ' ').trim();
-      if (cleaned.isEmpty) return null;
-      final lower = cleaned.toLowerCase();
-
-      final moveMatch = RegExp(
-        r'(?:reschedule|move|shift)\s+(.+?)\s+(?:to|at)\s+(\d{1,2}[:.]\d{2}(?:\s*(?:am|pm))?)',
-        caseSensitive: false,
-      ).firstMatch(cleaned);
-      if (moveMatch != null) {
-        return AIResponseAction(
-          type: 'move',
-          summary: moveMatch.group(1)?.trim(),
-          startTime: moveMatch.group(2)?.trim(),
-        );
-      }
-
-      final createMatch = RegExp(
-        r'(?:schedule|create|add)\s+(.+?)\s+(?:to|at)\s+(\d{1,2}[:.]\d{2}(?:\s*(?:am|pm))?)',
-        caseSensitive: false,
-      ).firstMatch(cleaned);
-      if (createMatch != null) {
-        return AIResponseAction(
-          type: 'create',
-          summary: createMatch.group(1)?.trim(),
-          startTime: createMatch.group(2)?.trim(),
-        );
-      }
-
-      if (RegExp(r'\b(reschedule|move|shift)\b').hasMatch(lower)) {
-        final subject = RegExp(
-          r'(?:reschedule|move|shift)\s+(.+?)(?:\.|$)',
-          caseSensitive: false,
-        ).firstMatch(cleaned)?.group(1)?.trim();
-        return AIResponseAction(type: 'move', summary: subject);
-      }
-
-      return null;
-    }
-
-    if (actionsStr != null && actionsStr.isNotEmpty) {
-      final normalizedActions = actionsStr.trim();
-      final looksLikeXmlAction = normalizedActions.startsWith('<');
-
-      void parseXmlActions() {
-        final actionBlock = RegExp(
-          r'<(create|schedule|move|delete|notify|update_timetable)([^>]*)>(.*?)</\1>',
-          dotAll: true,
-          caseSensitive: false,
-        );
-        final selfClosingActionBlock = RegExp(
-          r'<(create|schedule|move|delete|notify|update_timetable)([^>]*)\/>',
-          dotAll: true,
-          caseSensitive: false,
-        );
-
-        void appendParsedAction({
-          required String rawType,
-          required String attrsRaw,
-          required String bodyRaw,
-        }) {
-          final type = AIResponseAction._normalizeActionType(rawType.trim());
-          final attrs = parseXmlAttributes(attrsRaw);
-          final body = bodyRaw.trim();
-
-          if (type.isEmpty) return;
-
-          final startTime =
-              attrs['startTime'] ??
-              attrs['start_time'] ??
-              extractInnerTag(body, 'startTime');
-          final endTime =
-              attrs['endTime'] ??
-              attrs['end_time'] ??
-              extractInnerTag(body, 'endTime');
-          final recurrence =
-              attrs['recurrence'] ?? extractInnerTag(body, 'recurrence');
-          final message = attrs['message'] ?? extractInnerTag(body, 'message');
-          final notifyAt =
-              attrs['notifyAt'] ??
-              attrs['notify_at'] ??
-              extractInnerTag(body, 'notifyAt');
-
-          var summary =
-              attrs['summary'] ??
-              attrs['subject'] ??
-              extractInnerTag(body, 'summary') ??
-              extractInnerTag(body, 'subject');
-
-          if (summary == null || summary.isEmpty) {
-            final plainBody = body.replaceAll(RegExp(r'<[^>]+>'), '').trim();
-            if (plainBody.isNotEmpty) {
-              summary = plainBody;
-            }
-          }
-
-          int? durationMinutes;
-          final durationRaw =
-              attrs['durationMinutes'] ??
-              attrs['duration_minutes'] ??
-              extractInnerTag(body, 'durationMinutes');
-          if (durationRaw != null) {
-            durationMinutes = int.tryParse(durationRaw);
-          }
-
-          if (durationMinutes == null && startTime != null && endTime != null) {
-            final start = DateTime.tryParse(startTime);
-            final end = DateTime.tryParse(endTime);
-            if (start != null && end != null) {
-              final diff = end.difference(start).inMinutes;
-              if (diff > 0) durationMinutes = diff;
-            }
-          }
-
-          actionsList.add(
-            AIResponseAction(
-              type: type,
-              summary: summary,
-              startTime: startTime,
-              durationMinutes: durationMinutes,
-              recurrence: recurrence,
-              message: message,
-              notifyAt: notifyAt,
-            ),
-          );
-        }
-
-        final matches = actionBlock.allMatches(normalizedActions);
-        for (final m in matches) {
-          appendParsedAction(
-            rawType: m.group(1) ?? '',
-            attrsRaw: m.group(2) ?? '',
-            bodyRaw: m.group(3) ?? '',
-          );
-        }
-
-        final selfMatches = selfClosingActionBlock.allMatches(
-          normalizedActions,
-        );
-        for (final m in selfMatches) {
-          appendParsedAction(
-            rawType: m.group(1) ?? '',
-            attrsRaw: m.group(2) ?? '',
-            bodyRaw: '',
-          );
-        }
-      }
-
-      if (!looksLikeXmlAction) {
-        try {
-          final decoded = jsonDecode(normalizedActions);
-          if (decoded is List) {
-            bool isNakedTimetable = false;
-            if (decoded.isNotEmpty && decoded.first is Map) {
-              final firstItem = decoded.first as Map;
-              if (firstItem.containsKey('dayOfWeek') ||
-                  firstItem.containsKey('subject') ||
-                  firstItem.containsKey('venue')) {
-                isNakedTimetable = true;
-              }
-            }
-
-            if (isNakedTimetable) {
-              actionsList.add(
-                AIResponseAction.fromJson({
-                  'type': 'update_timetable',
-                  'slots': decoded,
-                }),
-              );
-            } else {
-              for (final item in decoded) {
-                if (item is Map<String, dynamic>) {
-                  actionsList.add(AIResponseAction.fromJson(item));
-                } else if (item is String) {
-                  final inferred = inferActionFromText(item);
-                  if (inferred != null) actionsList.add(inferred);
-                }
-              }
-            }
-          } else if (decoded is Map<String, dynamic>) {
-            actionsList = [AIResponseAction.fromJson(decoded)];
-          }
-        } catch (e) {
-          debugPrint('Failed to parse <actions> JSON: $e');
-        }
-      }
-
-      if (actionsList.isEmpty) {
-        parseXmlActions();
-      }
-
-      if (actionsList.isEmpty) {
-        final bracketText = normalizedActions
-            .replaceAll('[', ' ')
-            .replaceAll(']', ' ')
-            .replaceAll('"', ' ')
-            .trim();
-        final inferred = inferActionFromText(bracketText);
-        if (inferred != null) {
-          actionsList.add(inferred);
-        }
-      }
-    }
-
-    if (actionsList.isEmpty) {
-      final inferredFromVerbal = inferActionFromText(verbal);
-      if (inferredFromVerbal != null) {
-        actionsList.add(inferredFromVerbal);
-      }
-    }
-
-    // Parse Metrics
-    MetricDelta? metricDelta;
-    final metricsStr = extractTag('metric_delta');
-    if (metricsStr != null && metricsStr.isNotEmpty) {
-      try {
-        metricDelta = MetricDelta.fromJson(jsonDecode(metricsStr));
-      } catch (e) {
-        debugPrint("Failed to parse <metric_delta> JSON: $e");
-      }
-    }
-
-    // Parse Memory
-    MemoryUpdate? memoryUpdate;
-    final memoryStr = extractTag('memory_update');
-    if (memoryStr != null && memoryStr.isNotEmpty && memoryStr != 'null') {
-      try {
-        memoryUpdate = MemoryUpdate.fromJson(jsonDecode(memoryStr));
-      } catch (e) {
-        debugPrint("Failed to parse <memory_update> JSON: $e");
-      }
-    }
-
-    return AIResponse(
-      response: verbal,
-      thoughtProcess: thought,
-      actions: actionsList,
-      metricDelta: metricDelta,
-      memoryUpdate: memoryUpdate,
-    );
-  }
-}
-
-/// Top-level so it can run in a `compute` isolate.
-/// Decodes the image, scales the long edge down to [maxDim], and re-encodes
-/// as JPEG. Returns the original bytes if decoding fails.
-Uint8List _decodeResizeEncodeJpeg(Map<String, dynamic> args) {
-  final Uint8List bytes = args['bytes'] as Uint8List;
-  final int maxDim = args['maxDim'] as int;
-  final int quality = args['quality'] as int;
-
-  final decoded = img.decodeImage(bytes);
-  if (decoded == null) return bytes;
-
-  final int longEdge = decoded.width > decoded.height
-      ? decoded.width
-      : decoded.height;
-  final img.Image scaled = longEdge > maxDim
-      ? img.copyResize(
-          decoded,
-          width: decoded.width >= decoded.height ? maxDim : null,
-          height: decoded.height > decoded.width ? maxDim : null,
-        )
-      : decoded;
-
-  return Uint8List.fromList(img.encodeJpg(scaled, quality: quality));
-}
+        .take(_maxCalendarEventsI
