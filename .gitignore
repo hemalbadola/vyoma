@@ -15,6 +15,7 @@ node_modules/
 !config/subscription_plans.json
 !backend/config/subscription_plans.json
 !assets/config/subscription_plans.json
+!android/app/google-services.json.example
 !vyoma-ui/package-lock.json
 *_decoded.txt
 all_gemini_keys.txt
