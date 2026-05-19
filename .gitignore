@@ -21,6 +21,7 @@ node_modules/
 # android/app/google-services.json — local + CI secret only (never commit)
 !android/app/google-services.json.example
 !vyoma-ui/package-lock.json
+!functions/package-lock.json
 *_decoded.txt
 all_gemini_keys.txt
 test_*.py
