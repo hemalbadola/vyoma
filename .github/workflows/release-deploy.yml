@@ -43,7 +43,9 @@ jobs:
           cache: true
 
       - name: Flutter dependencies
-        run: flutter pub get
+        run: |
+          test -f lib/core/secrets.dart || cp lib/core/secrets.dart.example lib/core/secrets.dart
+          flutter pub get
 
       - name: Build Android APK (release)
         run: |

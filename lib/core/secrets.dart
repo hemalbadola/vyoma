@@ -1,0 +1,94 @@
+
+import 'package:flutter/foundation.dart';
+import '../config/env_config.dart';
+
+/// Secrets policy:
+/// - Never hardcode real keys in this file.
+/// - Provider API keys are disabled in release builds.
+/// - Use backend-proxied LLM calls for production packages.
+class Secrets {
+  static const String _desktopClientSecretEnv =
+      String.fromEnvironment('VYOMA_DESKTOP_CLIENT_SECRET', defaultValue: '');
+  static const String _desktopClientIdEnv =
+      String.fromEnvironment('VYOMA_DESKTOP_CLIENT_ID', defaultValue: '');
+  static const String _iosClientIdEnv =
+      String.fromEnvironment('VYOMA_IOS_CLIENT_ID', defaultValue: '');
+  static const String _androidClientIdEnv =
+      String.fromEnvironment('VYOMA_ANDROID_CLIENT_ID', defaultValue: '');
+  static const String _webClientIdEnv =
+      String.fromEnvironment('VYOMA_WEB_CLIENT_ID', defaultValue: '');
+
+  static String get desktopClientSecret =>
+      _resolveDevOnlySingleValue(
+        _desktopClientSecretEnv, 'VYOMA_DESKTOP_CLIENT_SECRET');
+  static String get desktopClientId =>
+      _resolveSingleValue(_desktopClientIdEnv, 'VYOMA_DESKTOP_CLIENT_ID');
+  static String get iOSClientId =>
+      _resolveSingleValue(_iosClientIdEnv, 'VYOMA_IOS_CLIENT_ID');
+  static String get androidClientId =>
+      _resolveSingleValue(_androidClientIdEnv, 'VYOMA_ANDROID_CLIENT_ID');
+  static String get webClientId =>
+      _resolveSingleValue(_webClientIdEnv, 'VYOMA_WEB_CLIENT_ID');
+
+  static bool get _allowClientSideProviderKeys => !kReleaseMode;
+
+  static List<String> get nvidiaApiKeys => _allowClientSideProviderKeys
+      ? _parseCsv(_runtimeEnv('VYOMA_NVIDIA_API_KEYS'))
+      : const [];
+
+  static List<String> get grokApiKeys => _allowClientSideProviderKeys
+      ? _parseCsv(_runtimeEnv('VYOMA_GROK_API_KEYS'))
+      : const [];
+
+  static List<String> get geminiApiKeys => _allowClientSideProviderKeys
+      ? _parseCsv(_runtimeEnv('VYOMA_GEMINI_API_KEYS'))
+      : const [];
+
+  static String get supermemoryApiKey => _allowClientSideProviderKeys
+      ? _runtimeEnv('VYOMA_SUPERMEMORY_API_KEY')
+      : '';
+
+  static String _resolveSingleValue(String compileTimeValue, String envKey) {
+    final compile = compileTimeValue.trim();
+    if (compile.isNotEmpty) return compile;
+
+    final runtime = _runtimeEnv(envKey);
+    if (runtime.isNotEmpty) return runtime;
+
+    return '';
+  }
+
+  static String _resolveDevOnlySingleValue(
+      String compileTimeValue, String envKey) {
+    if (kReleaseMode) return '';
+    return _resolveSingleValue(compileTimeValue, envKey);
+  }
+
+  static String _runtimeEnv(String key) {
+    return EnvConfig.get(key);
+  }
+
+  static List<String> _parseCsv(String rawInput) {
+    final raw = rawInput.trim();
+    if (raw.isEmpty) return const [];
+
+    final normalized = raw
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n')
+        .replaceAll(';', ',')
+        .replaceAll('\n', ',');
+
+    final seen = <String>{};
+    final out = <String>[];
+    for (final value in normalized
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)) {
+      if (seen.add(value)) {
+        out.add(value);
+      }
+    }
+
+    return out;
+  }
+}

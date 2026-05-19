@@ -23,7 +23,7 @@ decode_*.py
 list_models_py.py
 test_*.dart
 debug_err.dart
-lib/core/secrets.dart
+# secrets.dart is committed (env-only, no hardcoded keys). Override locally if needed.
 test_out.json
 *.iml
 

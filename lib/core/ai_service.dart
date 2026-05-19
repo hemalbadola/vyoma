@@ -815,7 +815,6 @@ Output as a clean bulleted list containing only the insights. Do not include int
       calendarEventStrings: compactCurrentEvents,
       behaviorStore: temporalFingerprintStore,
       focusMinutesSession: metrics.focusMinutes,
-      focusTimelineSummary: focusTimelineSummary,
     );
 
     final compactRelevantLogs = _memory
