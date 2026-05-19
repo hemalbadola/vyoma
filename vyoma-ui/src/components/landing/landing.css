@@ -608,6 +608,18 @@
   cursor: not-allowed;
 }
 
+.vyoma-download-stats {
+  margin-top: 0.65rem;
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.75);
+  letter-spacing: 0.02em;
+}
+
+.vyoma-download-stats__value {
+  font-weight: 600;
+  color: rgba(96, 165, 250, 0.95);
+}
+
 .vyoma-download-release-notes {
   margin-top: 0.75rem;
   font-size: 0.85rem;

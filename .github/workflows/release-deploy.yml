@@ -1,0 +1,109 @@
+# Every push to main → build APK, GitHub Release, update vyomai.app downloads.
+# APK on GitHub Releases (Firebase Spark cannot host binaries).
+
+name: Release deploy
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: release-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve release notes
+        id: notes
+        run: |
+          printf 'body<<EOF\n%s\nEOF\n' "${{ github.event.head_commit.message }}" >> "$GITHUB_OUTPUT"
+
+      - name: Compute release version (unique per push)
+        id: rel
+        run: node scripts/ci-release-version.mjs
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter dependencies
+        run: flutter pub get
+
+      - name: Build Android APK (release)
+        run: |
+          flutter build apk --release \
+            --build-name=${{ steps.rel.outputs.semver }} \
+            --build-number=${{ steps.rel.outputs.build_number }}
+
+      - name: Sync releases.json
+        env:
+          RELEASE_NOTES: ${{ steps.notes.outputs.body }}
+          GITHUB_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ steps.rel.outputs.release_tag }}
+          BUILD_NUMBER: ${{ steps.rel.outputs.build_number }}
+          DISPLAY_VERSION: ${{ steps.rel.outputs.display_version }}
+          ANDROID_DOWNLOAD_URL: https://github.com/${{ github.repository }}/releases/download/${{ steps.rel.outputs.release_tag }}/vyoma.apk
+        run: node scripts/sync-release-from-git.mjs
+
+      - name: Publish APK to GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.rel.outputs.release_tag }}"
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          test -f "$APK"
+          cp "$APK" /tmp/vyoma.apk
+          gh release create "$TAG" /tmp/vyoma.apk \
+            --title "Vyoma ${{ steps.rel.outputs.display_version }}" \
+            --notes "${{ steps.notes.outputs.body }}" \
+            --repo "${{ github.repository }}"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: vyoma-ui/package-lock.json
+
+      - name: Build web
+        run: npm ci && npm run build
+        working-directory: vyoma-ui
+
+      - name: Install functions deps
+        run: npm ci
+        working-directory: functions
+
+      - name: Sync Firestore app_version
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          APP_VERSION: ${{ steps.rel.outputs.display_version }}
+          RELEASE_NOTES: ${{ steps.notes.outputs.body }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: node scripts/sync-firestore-app-version.mjs
+
+      - name: Deploy Firebase Hosting + Firestore rules
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: |
+          if [ -z "$FIREBASE_TOKEN" ]; then
+            echo "::warning::FIREBASE_TOKEN not set — skip Firebase deploy"
+            exit 0
+          fi
+          npx firebase-tools deploy --only hosting,firestore:rules --non-interactive

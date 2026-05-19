@@ -47,7 +47,7 @@ class UpdateService {
       await prefs.setInt(_lastCheckKey, DateTime.now().millisecondsSinceEpoch);
 
       final packageInfo = await PackageInfo.fromPlatform();
-      final currentVersion = packageInfo.version;
+      final currentVersion = installedVersionLabel(packageInfo);
 
       final manifest = await _fetchManifest();
       if (manifest == null) return;
@@ -59,7 +59,7 @@ class UpdateService {
       final releaseNotes =
           firestoreOverride?['release_notes'] as String? ?? manifest.releaseNotes;
 
-      if (!_isUpdateAvailable(currentVersion, latestVersion)) {
+      if (!isNewerVersion(latestVersion, currentVersion)) {
         return;
       }
 
@@ -80,10 +80,8 @@ class UpdateService {
         }
       }
 
-      if (downloadUrl == null || downloadUrl.isEmpty) {
-        debugPrint('UPDATE_DEBUG: No download URL for platform $platformId');
-        return;
-      }
+      // Always send users to the download page (latest APK link lives there).
+      downloadUrl = AppConfig.updateWebsiteUrl;
 
       if (!context.mounted) return;
       await _showUpdateDialog(
@@ -125,21 +123,36 @@ class UpdateService {
     return url.startsWith('/') ? '$origin$url' : '$origin/$url';
   }
 
-  static bool _isUpdateAvailable(String current, String latest) {
-    try {
-      final v1 = current.split('.').map((p) => int.tryParse(p) ?? 0).toList();
-      final v2 = latest.split('.').map((p) => int.tryParse(p) ?? 0).toList();
-      final len = v1.length > v2.length ? v1.length : v2.length;
-      for (var i = 0; i < len; i++) {
-        final c1 = i < v1.length ? v1[i] : 0;
-        final c2 = i < v2.length ? v2[i] : 0;
-        if (c2 > c1) return true;
-        if (c1 > c2) return false;
-      }
-    } catch (_) {
-      return false;
+  /// Installed label matching CI releases (`1.11.2+42`).
+  static String installedVersionLabel(PackageInfo info) {
+    final build = info.buildNumber.trim();
+    if (build.isEmpty || build == '0') return info.version;
+    return '${info.version}+$build';
+  }
+
+  /// True when [latest] is greater than [current] (semver + optional `+build`).
+  static bool isNewerVersion(String latest, String current) {
+    final a = _parseVersionLabel(current);
+    final b = _parseVersionLabel(latest);
+    final semverLen = a.semver.length > b.semver.length ? a.semver.length : b.semver.length;
+    for (var i = 0; i < semverLen; i++) {
+      final c1 = i < a.semver.length ? a.semver[i] : 0;
+      final c2 = i < b.semver.length ? b.semver[i] : 0;
+      if (c2 > c1) return true;
+      if (c1 > c2) return false;
     }
-    return false;
+    return b.build > a.build;
+  }
+
+  static ({List<int> semver, int build}) _parseVersionLabel(String raw) {
+    final trimmed = raw.trim();
+    final plus = trimmed.split('+');
+    final semver = plus[0]
+        .split('.')
+        .map((p) => int.tryParse(p.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0)
+        .toList();
+    final build = plus.length > 1 ? (int.tryParse(plus[1].trim()) ?? 0) : 0;
+    return (semver: semver, build: build);
   }
 
   static Future<void> _showUpdateDialog(
@@ -198,13 +211,25 @@ class UpdateService {
                     await launchUrl(uri, mode: LaunchMode.externalApplication);
                   }
                 },
-                child: const Text('Download update', style: TextStyle(fontWeight: FontWeight.bold)),
+                child: Text(
+                  downloadUrl.contains('vyomai.app')
+                      ? 'Open vyomai.app'
+                      : 'Download update',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
               ),
             ],
           ),
         );
       },
     );
+  }
+
+  static Future<void> openUpdateWebsite() async {
+    final uri = Uri.parse(AppConfig.updateWebsiteUrl);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
   }
 
   static String _platformLabel() {

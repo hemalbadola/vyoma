@@ -8,6 +8,7 @@ import ProfileSetup from './pages/ProfileSetup.tsx'
 import Dashboard from './pages/Dashboard.tsx'
 import Chat from './pages/Chat.tsx'
 import FeatureStack from './pages/FeatureStack.tsx'
+import Subscribe from './pages/Subscribe.tsx'
 import ProtectedRoute from './components/ProtectedRoute.tsx'
 import { AuthProvider } from './contexts/AuthContext.tsx'
 import { UserProfileProvider } from './contexts/UserProfileContext.tsx'
@@ -29,9 +30,17 @@ createRoot(document.getElementById('root')!).render(
               }
             />
             <Route
+              path="/subscribe"
+              element={
+                <ProtectedRoute requireSubscription={false}>
+                  <Subscribe />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/dashboard"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute requireSubscription>
                   <Dashboard />
                 </ProtectedRoute>
               }
@@ -39,7 +48,7 @@ createRoot(document.getElementById('root')!).render(
             <Route
               path="/feature-stack"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute requireSubscription>
                   <FeatureStack />
                 </ProtectedRoute>
               }
@@ -47,11 +56,12 @@ createRoot(document.getElementById('root')!).render(
             <Route
               path="/chat"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute requireSubscription>
                   <Chat />
                 </ProtectedRoute>
               }
             />
+            <Route path="/app" element={<Navigate to="/dashboard" replace />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </UserProfileProvider>

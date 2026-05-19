@@ -29,6 +29,7 @@ class CouponService {
     }
 
     debugPrint('COUPON_DEBUG: redeemed ${body['code']} until ${body['subscriptionExpiresAt']}');
+    await user.getIdToken(true);
     return body;
   }
 }

@@ -23,7 +23,7 @@ export default function ProfileSetup() {
         tagline,
         displayName: user?.displayName ?? undefined,
       })
-      navigate('/dashboard', { replace: true })
+      navigate('/subscribe', { replace: true })
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Could not create profile')
     } finally {

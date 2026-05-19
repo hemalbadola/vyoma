@@ -1,15 +1,21 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useUserProfile } from '../contexts/UserProfileContext'
+import { hasActiveSubscription } from '../lib/subscriptionAccess'
 
 interface ProtectedRouteProps {
   children: React.ReactNode
   requireProfile?: boolean
+  requireSubscription?: boolean
 }
 
-export default function ProtectedRoute({ children, requireProfile = true }: ProtectedRouteProps) {
+export default function ProtectedRoute({
+  children,
+  requireProfile = true,
+  requireSubscription = false,
+}: ProtectedRouteProps) {
   const { user, loading: authLoading } = useAuth()
-  const { hasProfile, loading: profileLoading } = useUserProfile()
+  const { profile, hasProfile, loading: profileLoading } = useUserProfile()
   const location = useLocation()
 
   const loading = authLoading || (requireProfile && user && profileLoading)
@@ -32,6 +38,14 @@ export default function ProtectedRoute({ children, requireProfile = true }: Prot
   }
 
   if (!requireProfile && hasProfile && location.pathname === '/profile-setup') {
+    return <Navigate to="/dashboard" replace />
+  }
+
+  if (requireSubscription && !hasActiveSubscription(profile)) {
+    return <Navigate to="/subscribe" replace state={{ from: location.pathname }} />
+  }
+
+  if (!requireSubscription && hasActiveSubscription(profile) && location.pathname === '/subscribe') {
     return <Navigate to="/dashboard" replace />
   }
 

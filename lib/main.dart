@@ -37,6 +37,8 @@ import 'ui/home_screen.dart';
 import 'ui/onboarding_screen.dart';
 import 'ui/screens/login_screen.dart';
 import 'ui/screens/profile_setup_screen.dart';
+import 'ui/screens/subscription_gate_screen.dart';
+import 'core/subscription_access.dart';
 import 'tutorial/tutorial_controller.dart';
 import 'tutorial/tutorial_overlay.dart';
 
@@ -665,6 +667,9 @@ class _LaunchGateState extends State<_LaunchGate> {
             }
             if (!userSvc.hasProfile) {
               return const ProfileSetupScreen();
+            }
+            if (!SubscriptionAccess.hasActive(userSvc.currentProfile)) {
+              return const SubscriptionGateScreen();
             }
             return _onboardingComplete!
                 ? const HomeScreen()

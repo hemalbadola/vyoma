@@ -1,14 +1,14 @@
 {
   "appVersion": "1.11.2",
   "webVersion": "1.11.2",
-  "releasedAt": "2026-05-17",
+  "releasedAt": "2026-05-18",
   "mandatory": false,
-  "releaseNotes": "War Room, Razorpay subscriptions, coupons, and auto-update prompts.",
+  "releaseNotes": "fix(focus): subject colors and clock UI",
   "platforms": {
     "android": {
       "label": "Android",
       "fileName": "vyoma.apk",
-      "url": "/vyoma.apk",
+      "url": "https://github.com/hemalbadola/vyoma/releases/download/v1.11.2/vyoma.apk",
       "available": true
     },
     "windows": {
@@ -23,5 +23,6 @@
       "url": "",
       "available": false
     }
-  }
+  },
+  "source": "github"
 }

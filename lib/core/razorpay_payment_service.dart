@@ -122,6 +122,7 @@ class RazorpayPaymentService {
         'razorpay_signature': response.signature,
       };
       await verifyPayment(payload);
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
       await _onSuccess?.call(payload);
     } catch (e) {
       debugPrint('RAZORPAY_DEBUG: verify failed: $e');

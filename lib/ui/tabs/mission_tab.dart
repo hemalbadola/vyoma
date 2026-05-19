@@ -28,6 +28,7 @@ import '../../features/identity/presentation/widgets/identity_anchor_strip.dart'
 import '../../features/today/presentation/widgets/memory_braid_card.dart';
 import '../../features/today/presentation/widgets/one_thing_hero.dart';
 import '../../features/today/presentation/widgets/smart_suggestions_list.dart';
+import '../../features/today/presentation/widgets/today_focus_panel.dart';
 
 class MissionTab extends StatelessWidget {
   const MissionTab({super.key});
@@ -198,6 +199,11 @@ class MissionTab extends StatelessWidget {
                                     vm.currentMetrics.tasksCompleted,
                               ),
                             ),
+                          ),
+                          TodayFocusPanel(
+                            suggestedTask: stats.oneThing?.trim().isNotEmpty == true
+                                ? stats.oneThing
+                                : null,
                           ),
                           MemoryBraidCard(
                             stats: stats,
@@ -611,9 +617,22 @@ class MissionTab extends StatelessWidget {
           ).push(MaterialPageRoute(builder: (_) => const TimetableScreen()));
           break;
         case NextUpKind.focusBlock:
+          final vm = context.read<WarRoomViewModel>();
+          final title = suggestion.title.trim();
+          if (vm.isFocusSessionActive) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('End your current session first.')),
+            );
+          } else if (title.isNotEmpty) {
+            vm.startFocusSession(intent: title, mode: 'flow');
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Focus started: $title')),
+            );
+          }
+          break;
         case NextUpKind.task:
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Focus timer coming in next update.')),
+            const SnackBar(content: Text('Open tasks from the chat or task list.')),
           );
           break;
         case NextUpKind.reflection:
@@ -841,12 +860,22 @@ class MissionTab extends StatelessWidget {
                       );
                     },
                     onPlanFocusBlock: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Focus planner improves in next update.',
+                      final oneThing = stats.oneThing?.trim() ?? '';
+                      final vm = context.read<WarRoomViewModel>();
+                      if (vm.isFocusSessionActive) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('You already have an active focus session.'),
                           ),
-                        ),
+                        );
+                        return;
+                      }
+                      final intent = oneThing.isNotEmpty
+                          ? oneThing
+                          : 'deep work block';
+                      vm.startFocusSession(intent: intent, mode: 'ultradian');
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('90m block started: $intent')),
                       );
                     },
                     onOpenCircle: () {

@@ -1,5 +1,6 @@
 import admin from 'firebase-admin'
 import { FieldValue, Timestamp } from 'firebase-admin/firestore'
+import { syncSubscriptionClaims } from './subscriptionAccess'
 
 export function addDays(date: Date, days: number): Date {
   const next = new Date(date)
@@ -39,6 +40,8 @@ export async function applySubscriptionDays(
     },
     { merge: true }
   )
+
+  await syncSubscriptionClaims(uid)
 
   return subscriptionExpiresAt
 }

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -10,7 +11,14 @@ import '../../core/razorpay_payment_service.dart';
 import '../widgets/glass_card.dart';
 
 class SubscriptionScreen extends StatefulWidget {
-  const SubscriptionScreen({super.key});
+  const SubscriptionScreen({
+    super.key,
+    this.gateMessage,
+    this.showSignOut = false,
+  });
+
+  final String? gateMessage;
+  final bool showSignOut;
 
   @override
   State<SubscriptionScreen> createState() => _SubscriptionScreenState();
@@ -141,21 +149,36 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: Text(
-          'SUBSCRIPTION',
+          widget.showSignOut ? 'UNLOCK VYOMA' : 'SUBSCRIPTION',
           style: GoogleFonts.outfit(
             color: Colors.white,
             fontWeight: FontWeight.w700,
             letterSpacing: 2,
           ),
         ),
+        actions: [
+          if (widget.showSignOut)
+            TextButton(
+              onPressed: () => FirebaseAuth.instance.signOut(),
+              child: const Text('Sign out', style: TextStyle(color: Colors.white54)),
+            ),
+        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: Color(0xFFD4AF37)))
           : ListView(
               padding: const EdgeInsets.all(20),
               children: [
+                if (widget.gateMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      widget.gateMessage!,
+                      style: GoogleFonts.outfit(color: const Color(0xFFF59E0B), height: 1.45),
+                    ),
+                  ),
                 Text(
-                  'Same plans as vyomai.app — one subscription, synced to your account.',
+                  'Same plans as vyomai.app — subscribe or redeem a 1-month coupon.',
                   style: GoogleFonts.outfit(color: Colors.white60, height: 1.45),
                 ),
                 const SizedBox(height: 16),

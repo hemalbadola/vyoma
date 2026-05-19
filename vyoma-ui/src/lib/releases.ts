@@ -12,6 +12,9 @@ export type ReleaseManifest = {
   version?: string
   appVersion: string
   webVersion: string
+  buildNumber?: number
+  releaseTag?: string
+  commitSha?: string
   releasedAt: string
   releaseNotes: string
   mandatory?: boolean

@@ -14,108 +14,189 @@ service cloud.firestore {
       return field is list && request.auth.uid in field;
     }
 
+    function userDoc(uid) {
+      return get(/databases/$(database)/documents/users/$(uid));
+    }
+
+    // Custom claim set by Cloud Functions after payment / coupon (preferred).
+    function claimSubscriptionActive() {
+      return request.auth.token.subscriptionActive == true;
+    }
+
+    function firestoreSubscriptionActive(uid) {
+      let u = userDoc(uid).data;
+      return u.subscriptionStatus == 'active'
+        && u.subscriptionExpiresAt is timestamp
+        && u.subscriptionExpiresAt > request.time;
+    }
+
+    function hasActiveSubscription(uid) {
+      return isAuthenticated()
+        && (claimSubscriptionActive() || firestoreSubscriptionActive(uid));
+    }
+
+    function subscriptionFieldsUntouched() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny([
+          'subscriptionPlan',
+          'subscriptionStatus',
+          'subscriptionActiveAt',
+          'subscriptionExpiresAt',
+          'lastPaymentId',
+          'lastOrderId',
+          'subscriptionSource',
+          'lastCouponCode'
+        ]);
+    }
+
+    function profileBootstrapKeysOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'username',
+        'username_lower',
+        'displayName',
+        'tagline',
+        'timezone',
+        'weeklyFocusGoalMinutes',
+        'currentIntention',
+        'intentionSetAt',
+        'activeTasks',
+        'lastSeenAt',
+        'shareTasksWithFriends',
+        'showOnlineStatus',
+        'enableTelemetry',
+        'shareIntention',
+        'uid'
+      ]);
+    }
+
     // ── Config (version gate, remote flags) — client read-only ─────────────
     match /config/{docId} {
       allow read: if isAuthenticated();
       allow write: if false;
     }
 
-    // ── Users + nested owner data (tasks, daily_metrics, devices, …) ───────
+    // ── Public download stats (writes via Heroku Admin SDK only) ───────────
+    match /stats/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ── Users: profile readable by owner; app data requires subscription ─────
     match /users/{userId} {
-      allow read: if isAuthenticated();
+      allow read: if isOwner(userId);
       allow create: if isOwner(userId);
       allow update: if isOwner(userId)
-        && !request.resource.data.diff(resource.data).affectedKeys()
-          .hasAny([
-            'subscriptionPlan',
-            'subscriptionStatus',
-            'subscriptionActiveAt',
-            'subscriptionExpiresAt',
-            'lastPaymentId',
-            'lastOrderId',
-            'subscriptionSource',
-            'lastCouponCode'
-          ]);
+        && subscriptionFieldsUntouched()
+        && (
+          hasActiveSubscription(userId)
+          || profileBootstrapKeysOnly()
+        );
       allow delete: if false;
 
       match /{document=**} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isOwner(userId) && hasActiveSubscription(userId);
       }
     }
 
     match /usernames/{username} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && !exists(/databases/$(database)/documents/usernames/$(username));
+      allow create: if isAuthenticated()
+        && !exists(/databases/$(database)/documents/usernames/$(username))
+        && request.resource.data.uid == request.auth.uid;
       allow update, delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
     }
 
     match /friendships/{friendshipId} {
-      allow read: if isAuthenticated() && request.auth.uid in resource.data.users;
-      allow create: if isAuthenticated() && request.auth.uid in request.resource.data.users;
-      allow update, delete: if isAuthenticated() && request.auth.uid in resource.data.users;
+      allow read: if isAuthenticated()
+        && hasActiveSubscription(request.auth.uid)
+        && request.auth.uid in resource.data.users;
+      allow create: if isAuthenticated()
+        && hasActiveSubscription(request.auth.uid)
+        && request.auth.uid in request.resource.data.users;
+      allow update, delete: if isAuthenticated()
+        && hasActiveSubscription(request.auth.uid)
+        && request.auth.uid in resource.data.users;
     }
 
     match /activities/{activityId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
-      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow read: if isAuthenticated() && hasActiveSubscription(request.auth.uid);
+      allow create, update: if isAuthenticated()
+        && hasActiveSubscription(request.auth.uid)
+        && request.resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated()
+        && hasActiveSubscription(request.auth.uid)
+        && resource.data.userId == request.auth.uid;
     }
 
     match /pacts/{pactId} {
-      allow read: if isAuthenticated() && request.auth.uid in resource.data.participants;
-      allow create: if isAuthenticated() && request.auth.uid in request.resource.data.participants;
-      allow update, delete: if isAuthenticated() && request.auth.uid in resource.data.participants;
+      allow read: if isAuthenticated()
+        && hasActiveSubscription(request.auth.uid)
+        && request.auth.uid in resource.data.participants;
+      allow create: if isAuthenticated()
+        && hasActiveSubscription(request.auth.uid)
+        && request.auth.uid in request.resource.data.participants;
+      allow update, delete: if isAuthenticated()
+        && hasActiveSubscription(request.auth.uid)
+        && request.auth.uid in resource.data.participants;
     }
 
-    // ── Friend nudges (PingService) ─────────────────────────────────────────
     match /pings/{pingId} {
-      allow read: if isAuthenticated() && (
+      allow read: if isAuthenticated() && hasActiveSubscription(request.auth.uid) && (
         resource.data.toUid == request.auth.uid ||
         resource.data.fromUid == request.auth.uid
       );
-      allow create: if isAuthenticated() &&
-        request.resource.data.fromUid == request.auth.uid &&
-        request.resource.data.toUid != request.auth.uid &&
-        request.resource.data.keys().hasAll(['fromUid', 'fromName', 'toUid', 'taskTitle', 'timestamp']);
+      allow create: if isAuthenticated()
+        && hasActiveSubscription(request.auth.uid)
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.toUid != request.auth.uid
+        && request.resource.data.keys().hasAll(['fromUid', 'fromName', 'toUid', 'taskTitle', 'timestamp']);
       allow update, delete: if false;
     }
 
-    // ── Witness vows ───────────────────────────────────────────────────────
     match /vows/{vowId} {
-      allow read: if isAuthenticated() && (
+      allow read: if isAuthenticated() && hasActiveSubscription(request.auth.uid) && (
         resource.data.ownerUid == request.auth.uid ||
         resource.data.witnessUid == request.auth.uid
       );
-      allow create: if isAuthenticated() &&
-        request.resource.data.ownerUid == request.auth.uid &&
-        request.resource.data.witnessUid != request.auth.uid;
-      allow update: if isAuthenticated() && resource.data.ownerUid == request.auth.uid;
+      allow create: if isAuthenticated()
+        && hasActiveSubscription(request.auth.uid)
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.witnessUid != request.auth.uid;
+      allow update: if isAuthenticated()
+        && hasActiveSubscription(request.auth.uid)
+        && resource.data.ownerUid == request.auth.uid;
       allow delete: if false;
     }
 
-    // ── Mirror sessions (host + partner only) ───────────────────────────────
     match /mirror_sessions/{sessionId} {
-      allow read: if isAuthenticated() && uidInList(resource.data.members);
-      allow create: if isAuthenticated() &&
-        request.resource.data.hostUid == request.auth.uid &&
-        request.resource.data.partnerUid != request.auth.uid &&
-        uidInList(request.resource.data.members);
-      allow update: if isAuthenticated() && uidInList(resource.data.members);
+      allow read: if isAuthenticated()
+        && hasActiveSubscription(request.auth.uid)
+        && uidInList(resource.data.members);
+      allow create: if isAuthenticated()
+        && hasActiveSubscription(request.auth.uid)
+        && request.resource.data.hostUid == request.auth.uid
+        && request.resource.data.partnerUid != request.auth.uid
+        && uidInList(request.resource.data.members);
+      allow update: if isAuthenticated()
+        && hasActiveSubscription(request.auth.uid)
+        && uidInList(resource.data.members);
       allow delete: if false;
     }
 
-    // ── Council (advisors & queries) ─────────────────────────────────────────
     match /council_members/{memberId} {
-      allow read: if isAuthenticated() && (
+      allow read: if isAuthenticated() && hasActiveSubscription(request.auth.uid) && (
         resource.data.ownerUid == request.auth.uid ||
         resource.data.advisorUid == request.auth.uid
       );
-      allow create: if isAuthenticated() &&
-        request.resource.data.ownerUid == request.auth.uid;
-      allow update: if isAuthenticated() && (
-        resource.data.ownerUid == request.auth.uid ||
-        resource.data.advisorUid == request.auth.uid
-      );
+      allow create: if isAuthenticated()
+        && hasActiveSubscription(request.auth.uid)
+        && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if isAuthenticated()
+        && hasActiveSubscription(request.auth.uid)
+        && (
+          resource.data.ownerUid == request.auth.uid ||
+          resource.data.advisorUid == request.auth.uid
+        );
       allow delete: if false;
     }
 
@@ -132,13 +213,16 @@ service cloud.firestore {
     }
 
     match /council_queries/{queryId} {
-      allow read: if isAuthenticated() && (
+      allow read: if isAuthenticated() && hasActiveSubscription(request.auth.uid) && (
         resource.data.ownerUid == request.auth.uid ||
         uidInList(resource.data.advisorUids)
       );
-      allow create: if isAuthenticated() &&
-        request.resource.data.ownerUid == request.auth.uid;
-      allow update: if isAuthenticated() && uidInList(resource.data.advisorUids);
+      allow create: if isAuthenticated()
+        && hasActiveSubscription(request.auth.uid)
+        && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if isAuthenticated()
+        && hasActiveSubscription(request.auth.uid)
+        && uidInList(resource.data.advisorUids);
       allow delete: if false;
     }
   }

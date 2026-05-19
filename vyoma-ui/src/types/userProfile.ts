@@ -10,6 +10,9 @@ export type VyomaUserProfile = {
   timezone: string
   activeTasks: string[]
   lastSeenAt: Date | null
+  subscriptionPlan: string | null
+  subscriptionStatus: string | null
+  subscriptionExpiresAt: Date | null
 }
 
 export type VyomaTask = {

@@ -309,10 +309,7 @@ class _VaultJournalViewState extends State<VaultJournalView> {
                       420.0,
                     );
 
-                    return Localizations.override(
-                      context: context,
-                      locale: const Locale.fromSubtags(languageCode: 'zxx'),
-                      child: SingleChildScrollView(
+                    return SingleChildScrollView(
                         padding: const EdgeInsets.only(bottom: 12),
                         child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -942,7 +939,6 @@ class _VaultJournalViewState extends State<VaultJournalView> {
                           ),
                         ],
                       ),
-                    ),
                     );
                   },
                 ),

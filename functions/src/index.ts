@@ -6,8 +6,11 @@ import { redeemPromoCode } from './coupons'
 import { DEFAULT_CURRENCY, getPlan, type PlanId } from './plans'
 import { createRazorpayClient, getRazorpayKeyId } from './razorpay'
 import { applySubscriptionDays } from './subscription'
+import { broadcastAppUpdate } from './app_version_broadcast'
 
 admin.initializeApp()
+
+export { broadcastAppUpdate }
 
 const REGION = 'asia-south1'
 

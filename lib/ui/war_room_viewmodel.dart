@@ -25,6 +25,7 @@ import '../core/execution_engine.dart';
 import '../core/audit_logger.dart' as protocol_audit;
 import '../core/executor_adapters.dart';
 import '../core/temporal_behavior_store.dart';
+import '../core/focus_timeline_store.dart';
 import '../core/temporal_context_builder.dart';
 import '../services/audit_logger.dart' as app_audit;
 
@@ -117,6 +118,7 @@ class WarRoomViewModel extends ChangeNotifier {
   bool _focusSessionActive = false;
   String? _focusSessionIntent;
   DateTime? _focusSessionStartedAt;
+  String _focusSessionMode = 'flow';
   
   // Chronos
   late final ChronosService _chronosService; 
@@ -153,6 +155,23 @@ class WarRoomViewModel extends ChangeNotifier {
 
   bool get isFocusSessionActive => _focusSessionActive;
   String? get focusSessionIntent => _focusSessionIntent;
+  DateTime? get focusSessionStartedAt => _focusSessionStartedAt;
+  String get focusSessionMode => _focusSessionMode;
+
+  /// Start focus from Today UI (same behavior as `/focus start`).
+  bool startFocusSession({required String intent, String mode = 'flow'}) {
+    final task = intent.trim();
+    if (task.isEmpty || _focusSessionActive) return false;
+    _beginFocusSession(task: task, mode: mode);
+    return true;
+  }
+
+  /// End focus from Today UI (same behavior as `/focus stop`).
+  bool stopFocusSession() {
+    if (!_focusSessionActive) return false;
+    _endFocusSession();
+    return true;
+  }
 
   // Minimal proactive loop to keep the "companion" behavior alive.
   Timer? _focusCheckTimer;
@@ -385,7 +404,7 @@ class WarRoomViewModel extends ChangeNotifier {
     final temporalGap = _chronosService.getTimeGap();
     final status = _chronosService.analyzeTemporalState();
     
-    _addMessage("SYSTEM", "VYOMA // Cognitive Companion Online", save: true);
+    _addMessage("SYSTEM", "VYOMA // Your alter ego.", save: true);
     
     // Greeting based on Gap
      if (status == TemporalStatus.longAbsence) {
@@ -1012,7 +1031,7 @@ class WarRoomViewModel extends ChangeNotifier {
       
       // Try the new JSON protocol first
       final proposal = _aiService.tryParseProposal(
-        aiResponse.response, // The raw text is in the response field for bridged responses
+        aiResponse.protocolJson ?? aiResponse.response,
       );
       
       if (proposal != null && proposal.actions.isNotEmpty) {
@@ -1096,7 +1115,9 @@ class WarRoomViewModel extends ChangeNotifier {
       } else {
         // Legacy path: old AIResponse actions (XML fallback)
         if (aiResponse.actions.isNotEmpty) {
-          final requestedWeekday = _extractRequestedWeekday(text);
+          final requestedWeekday = _looksLikeBulkSchedulePaste(text)
+              ? null
+              : _extractRequestedWeekday(text);
           final stagedActions = aiResponse.actions
               .where((a) => a.type != 'none')
               .toList();
@@ -1153,31 +1174,110 @@ class WarRoomViewModel extends ChangeNotifier {
   }
 
   bool _isTimetableReadRequest(String text) {
+    if (_isTimetableEditIntent(text) || _looksLikeBulkSchedulePaste(text)) {
+      return false;
+    }
+
     final lower = text.toLowerCase();
     final asksToRead = RegExp(r'\b(show|list|what|display|give|see|provide)\b').hasMatch(lower);
     final hasWeekday = RegExp(r'\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b').hasMatch(lower);
     final mentionsTimetable = RegExp(r'\b(timetable|time\s*table|schedule|classes|class)\b').hasMatch(lower);
-    final editWords = _isTimetableEditIntent(text);
-    final followUpRead = hasWeekday && _hasRecentTimetableContext();
-    return !editWords && ((asksToRead && mentionsTimetable) || followUpRead);
+    final followUpRead =
+        hasWeekday && _hasRecentTimetableContext(excludeCurrentUserTurn: true) && _isShortWeekdayLookup(text);
+    return (asksToRead && mentionsTimetable) || followUpRead;
+  }
+
+  /// Multi-line exam/class paste — must reach the AI, not the weekday read shortcut.
+  bool _looksLikeBulkSchedulePaste(String text) {
+    final lower = text.toLowerCase();
+    final weekdayHits = RegExp(
+      r'\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b',
+    ).allMatches(lower).length;
+    final datedRows = RegExp(
+      r'\b\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b',
+    ).allMatches(lower).length;
+    final timeRanges = RegExp(
+      r'\d{1,2}:\d{2}\s*(am|pm)',
+      caseSensitive: false,
+    ).allMatches(lower).length;
+
+    if (weekdayHits >= 2) return true;
+    if (datedRows >= 2) return true;
+    if (timeRanges >= 2 && weekdayHits >= 1) return true;
+    if (RegExp(r'\b(exam|exams|test|tests)\b').hasMatch(lower) &&
+        (datedRows >= 1 || timeRanges >= 1)) {
+      return true;
+    }
+    return false;
+  }
+
+  /// Exams, end-sem blocks, dated rows — one-time calendar events, never weekly RRULE.
+  bool _isOneOffDatedEventRequest(String text) {
+    if (_looksLikeBulkSchedulePaste(text)) return true;
+
+    final lower = text.toLowerCase();
+    if (RegExp(r'\b(exam|exams|end\s*sem|endsem|midterm|finals?|test dates?)\b').hasMatch(lower)) {
+      return true;
+    }
+    if (RegExp(r'\b\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b').hasMatch(lower) &&
+        RegExp(r'\b20\d{2}\b').hasMatch(lower)) {
+      return true;
+    }
+
+    for (final msg in _messages.reversed.where((m) => m.sender == 'USER').take(8)) {
+      if (msg.text == text) continue;
+      if (_looksLikeBulkSchedulePaste(msg.text)) return true;
+      final m = msg.text.toLowerCase();
+      if (RegExp(r'\b(exam|exams|end\s*sem|endsem)\b').hasMatch(m) &&
+          RegExp(r'\d{1,2}:\d{2}\s*(am|pm)', caseSensitive: false).hasMatch(m)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _isShortWeekdayLookup(String text) {
+    final lower = text.toLowerCase();
+    if (!RegExp(r'\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b').hasMatch(lower)) {
+      return false;
+    }
+    final wordCount = lower.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+    if (wordCount > 12) return false;
+    return !RegExp(r'\b(schedule|add|create|book|exam|exams|test|tests|clear|delete|remove)\b')
+        .hasMatch(lower);
   }
 
   bool _isTimetableEditIntent(String text) {
     final lower = text.toLowerCase();
     final directEdit = RegExp(
-      r'\b(reschedule|shift|move|change|update|set|add|create|delete|cancel|remove|schedule\s+(this|it|them|for|at|on|from|to|me)|every\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b',
+      r'\b(reschedule|shift|move|change|update|set|add|create|delete|cancel|remove|book|schedule\s+(this|it|them|my|the|these|those|all|for|at|on|from|to|me)|every\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b',
     ).hasMatch(lower);
 
     if (directEdit) return true;
+    if (_looksLikeBulkSchedulePaste(text)) return true;
 
-    final hasScheduleVerb = RegExp(r'\bschedule\b').hasMatch(lower);
-    final hasActionObject = RegExp(r'\b(class|classes|slot|slots|event|events|this|it|them)\b').hasMatch(lower);
+    if (RegExp(r'\b(schedule|add|create|book)\b').hasMatch(lower) &&
+        RegExp(r'\b(exam|exams|test|tests)\b').hasMatch(lower)) {
+      return true;
+    }
+
+    final hasScheduleVerb = RegExp(r'\b(schedule|add|create|book)\b').hasMatch(lower);
+    final hasActionObject = RegExp(
+      r'\b(class|classes|slot|slots|event|events|exam|exams|test|tests|this|it|them)\b',
+    ).hasMatch(lower);
     return hasScheduleVerb && hasActionObject;
   }
 
-  bool _hasRecentTimetableContext() {
+  bool _hasRecentTimetableContext({bool excludeCurrentUserTurn = false}) {
     final recent = _messages.reversed.take(8);
+    var skippedLatestUser = false;
     for (final msg in recent) {
+      if (excludeCurrentUserTurn &&
+          !skippedLatestUser &&
+          msg.sender == 'USER') {
+        skippedLatestUser = true;
+        continue;
+      }
       final lower = msg.text.toLowerCase();
       if (RegExp(r'\b(timetable|time\s*table|schedule|classes|class)\b').hasMatch(lower)) {
         return true;
@@ -1956,16 +2056,34 @@ class WarRoomViewModel extends ChangeNotifier {
     return candidate;
   }
 
-  DateTime _alignToRequestedWeekday(DateTime parsed, int? requestedWeekday) {
+  bool _startTimeHasExplicitCalendarDate(String? iso) {
+    if (iso == null || iso.isEmpty) return false;
+    return RegExp(r'\d{4}-\d{2}-\d{2}').hasMatch(iso);
+  }
+
+  DateTime _alignToRequestedWeekday(
+    DateTime parsed,
+    int? requestedWeekday, {
+    String? startTimeIso,
+  }) {
     if (requestedWeekday == null) return parsed;
 
+    // Exam rows and other dated events: keep the model's ISO date (e.g. May 20 Wed).
+    if (_startTimeHasExplicitCalendarDate(startTimeIso) &&
+        parsed.weekday != requestedWeekday) {
+      return parsed;
+    }
+
     final now = DateTime.now();
-    if (parsed.weekday == requestedWeekday && parsed.isAfter(now.subtract(const Duration(minutes: 1)))) {
+    if (parsed.weekday == requestedWeekday &&
+        parsed.isAfter(now.subtract(const Duration(minutes: 1)))) {
       return parsed;
     }
 
     final corrected = _nextOccurrenceForWeekday(requestedWeekday, parsed);
-    debugPrint('WEEKDAY_GUARD: corrected ${parsed.toIso8601String()} -> ${corrected.toIso8601String()}');
+    debugPrint(
+      'WEEKDAY_GUARD: corrected ${parsed.toIso8601String()} -> ${corrected.toIso8601String()}',
+    );
     return corrected;
   }
 
@@ -2060,34 +2178,112 @@ class WarRoomViewModel extends ChangeNotifier {
 
   bool _shouldDefaultWeeklyRecurrence(String userText, int? requestedWeekday) {
     if (requestedWeekday == null) return false;
+    if (_isOneOffDatedEventRequest(userText)) return false;
+
     final lower = userText.toLowerCase();
+    final weeklyClass = RegExp(
+      r'\b(every\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)|weekly|each\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)|timetable|time\s*table|class\s+schedule|regular\s+class)\b',
+    ).hasMatch(lower);
     final scheduleWord = RegExp(r'\b(schedule|timetable|routine|classes|class|college schedule)\b').hasMatch(lower);
     final dayWord = RegExp(r'\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b').hasMatch(lower);
-    return scheduleWord && dayWord;
+
+    // Only default weekly repeat for repeating class patterns — not exam date lists.
+    return weeklyClass || (scheduleWord && dayWord && !_looksLikeBulkSchedulePaste(userText));
+  }
+
+  void _beginFocusSession({required String task, required String mode}) {
+    _focusSessionActive = true;
+    _focusSessionIntent = task;
+    _focusSessionMode = mode;
+    _focusSessionStartedAt = DateTime.now();
+    _addSystemStatus(
+      "Focus started ($mode): $task",
+      persist: false,
+    );
+    notifyListeners();
+    unawaited(_persistVyomaRuntimeState());
+    unawaited(
+      TemporalBehaviorStore(_aiService.memory).record(
+        kind: 'focus_start',
+        taskTitle: task,
+        outcome: 'started_$mode',
+      ),
+    );
+  }
+
+  void _endFocusSession() {
+    final startedAt = _focusSessionStartedAt;
+    final intentWas = _focusSessionIntent;
+    final modeWas = _focusSessionMode;
+    final endedAt = DateTime.now();
+    final mins =
+        startedAt == null ? 0 : endedAt.difference(startedAt).inMinutes;
+    final secs =
+        startedAt == null ? 0 : endedAt.difference(startedAt).inSeconds;
+    _focusSessionActive = false;
+    _focusSessionIntent = null;
+    _focusSessionStartedAt = null;
+    _focusSessionMode = 'flow';
+    _addSystemStatus("Focus session ended. Duration: ${mins}m", persist: false);
+    notifyListeners();
+    unawaited(_persistVyomaRuntimeState());
+    unawaited(
+      TemporalBehaviorStore(_aiService.memory).record(
+        kind: 'focus_end',
+        taskTitle: intentWas,
+        outcome: 'stopped',
+        durationSeconds: secs,
+      ),
+    );
+    if (startedAt != null && intentWas != null && secs >= 60) {
+      unawaited(
+        FocusTimelineStore(_aiService.memory).recordSession(
+          start: startedAt,
+          end: endedAt,
+          task: intentWas,
+          mode: modeWas,
+        ),
+      );
+    }
+  }
+
+  ({String mode, String task})? _parseFocusStartCommand(String text) {
+    var rest = text.substring('/focus start'.length).trim();
+    if (rest.isEmpty) return null;
+
+    const modes = {'pomodoro', 'ultradian', 'deep', 'flow'};
+    final parts = rest.split(RegExp(r'\s+'));
+    if (parts.isNotEmpty && modes.contains(parts.first.toLowerCase())) {
+      final mode = parts.first.toLowerCase();
+      final task = parts.length > 1 ? parts.sublist(1).join(' ') : '';
+      if (task.isEmpty) return null;
+      return (mode: mode, task: task);
+    }
+    return (mode: 'flow', task: rest);
   }
 
   bool _handleControlCommand(String text) {
     final cmd = text.toLowerCase();
+    if (cmd == '/focus modes') {
+      _addSystemStatus(
+        'Focus modes: flow (open-ended, default) · pomodoro (25m sprint) · '
+        'ultradian (~90m deep block) · deep (50–90m, no rigid breaks). '
+        'Usage: /focus start <task> or /focus start ultradian <task>',
+        persist: false,
+      );
+      return true;
+    }
+
     if (cmd.startsWith('/focus start')) {
-      final intent = text.substring('/focus start'.length).trim();
-      if (intent.isEmpty) {
-        _addSystemStatus("Usage: /focus start <intent>", persist: false);
+      final parsed = _parseFocusStartCommand(text);
+      if (parsed == null) {
+        _addSystemStatus(
+          "Usage: /focus start <task> · /focus start ultradian <task> · /focus modes",
+          persist: false,
+        );
         return true;
       }
-
-      _focusSessionActive = true;
-      _focusSessionIntent = intent;
-      _focusSessionStartedAt = DateTime.now();
-      _addSystemStatus("Focus session started: $intent", persist: false);
-      notifyListeners();
-      unawaited(_persistVyomaRuntimeState());
-      unawaited(
-        TemporalBehaviorStore(_aiService.memory).record(
-          kind: 'focus_start',
-          taskTitle: intent,
-          outcome: 'started',
-        ),
-      );
+      _beginFocusSession(task: parsed.task, mode: parsed.mode);
       return true;
     }
 
@@ -2096,25 +2292,7 @@ class WarRoomViewModel extends ChangeNotifier {
         _addSystemStatus("No active focus session to stop.", persist: false);
         return true;
       }
-
-      final startedAt = _focusSessionStartedAt;
-      final intentWas = _focusSessionIntent;
-      final mins = startedAt == null ? 0 : DateTime.now().difference(startedAt).inMinutes;
-      final secs = startedAt == null ? 0 : DateTime.now().difference(startedAt).inSeconds;
-      _focusSessionActive = false;
-      _focusSessionIntent = null;
-      _focusSessionStartedAt = null;
-      _addSystemStatus("Focus session ended. Duration: ${mins}m", persist: false);
-      notifyListeners();
-      unawaited(_persistVyomaRuntimeState());
-      unawaited(
-        TemporalBehaviorStore(_aiService.memory).record(
-          kind: 'focus_end',
-          taskTitle: intentWas,
-          outcome: 'stopped',
-          durationSeconds: secs,
-        ),
-      );
+      _endFocusSession();
       return true;
     }
 
@@ -2212,14 +2390,30 @@ class WarRoomViewModel extends ChangeNotifier {
 
       try {
         final parsedStart = _parseEventDateTime(action.startTime!);
-        var startDt = _alignToRequestedWeekday(parsedStart, requestedWeekday);
+        var startDt = _alignToRequestedWeekday(
+          parsedStart,
+          requestedWeekday,
+          startTimeIso: action.startTime,
+        );
         var endDt = startDt.add(Duration(minutes: action.durationMinutes ?? 60));
 
-        if (sourceUserText != null && action.summary != null && action.summary!.trim().isNotEmpty) {
+        final oneOff = sourceUserText != null && _isOneOffDatedEventRequest(sourceUserText);
+        if (!oneOff &&
+            sourceUserText != null &&
+            action.summary != null &&
+            action.summary!.trim().isNotEmpty) {
           final extracted = _extractTimeRangeForSubject(sourceUserText, action.summary!, startDt);
           if (extracted != null) {
-            startDt = _alignToRequestedWeekday(extracted.start, requestedWeekday);
-            endDt = _alignToRequestedWeekday(extracted.end, requestedWeekday);
+            startDt = _alignToRequestedWeekday(
+              extracted.start,
+              requestedWeekday,
+              startTimeIso: action.startTime,
+            );
+            endDt = _alignToRequestedWeekday(
+              extracted.end,
+              requestedWeekday,
+              startTimeIso: action.startTime,
+            );
           }
         }
 
@@ -2240,12 +2434,17 @@ class WarRoomViewModel extends ChangeNotifier {
         );
         
         List<String>? recurrenceRule;
-        if (action.recurrence != null && action.recurrence!.isNotEmpty) {
-           String rule = action.recurrence!;
-           if (!rule.startsWith("RRULE:")) rule = "RRULE:$rule";
-           recurrenceRule = [rule];
-          } else if (sourceUserText != null && _shouldDefaultWeeklyRecurrence(sourceUserText, requestedWeekday)) {
+        final oneOffRequest =
+            sourceUserText != null && _isOneOffDatedEventRequest(sourceUserText);
+        if (!oneOffRequest) {
+          if (action.recurrence != null && action.recurrence!.isNotEmpty) {
+            var rule = action.recurrence!.trim();
+            if (!rule.startsWith('RRULE:')) rule = 'RRULE:$rule';
+            recurrenceRule = [rule];
+          } else if (sourceUserText != null &&
+              _shouldDefaultWeeklyRecurrence(sourceUserText, requestedWeekday)) {
             recurrenceRule = ['RRULE:FREQ=WEEKLY'];
+          }
         }
 
           final createdEvent = await _calendarService.addEvent(event, recurrence: recurrenceRule);
@@ -2286,7 +2485,11 @@ class WarRoomViewModel extends ChangeNotifier {
            final backup = targetEvent;
            final existingStart = backup.start?.dateTime?.toLocal() ?? DateTime.now();
            var startDt = _applyClockToDate(action.startTime!, existingStart);
-           startDt = _alignToRequestedWeekday(startDt, requestedWeekday);
+           startDt = _alignToRequestedWeekday(
+             startDt,
+             requestedWeekday,
+             startTimeIso: action.startTime,
+           );
 
            final existingEnd = backup.end?.dateTime?.toLocal();
            final existingDuration = (existingEnd != null && existingEnd.isAfter(existingStart))
@@ -2369,14 +2572,18 @@ class WarRoomViewModel extends ChangeNotifier {
             final backup = targetEvent;
             await _calendarService.deleteEvent(targetEventId);
             final parsedStart = _parseEventDateTime(action.startTime!);
-            var startDt = _alignToRequestedWeekday(parsedStart, requestedWeekday);
+            var startDt = _alignToRequestedWeekday(
+              parsedStart,
+              requestedWeekday,
+              startTimeIso: action.startTime,
+            );
             var endDt = startDt.add(Duration(minutes: action.durationMinutes ?? 60));
 
             if (_isPmCorrectionRequest(sourceUserText) && startDt.hour <= 6) {
               startDt = startDt.add(const Duration(hours: 12));
               endDt = endDt.add(const Duration(hours: 12));
             }
-            
+
             final event = calendar.Event(
               summary: action.summary,
               start: calendar.EventDateTime(dateTime: startDt),

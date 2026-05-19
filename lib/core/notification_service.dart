@@ -151,17 +151,39 @@ class NotificationService {
     _initialized = true;
   }
 
+  /// Shown when Firestore / FCM reports a newer app version.
+  Future<void> notifyAppUpdate({
+    required String version,
+    required String body,
+    String updateUrl = 'https://vyomai.app',
+  }) async {
+    await notifyNow(
+      title: 'Vyoma v$version available',
+      body: '$body\n\nTap to open $updateUrl',
+    );
+  }
+
   Future<void> notifyNow({required String title, required String body}) async {
     await ensureInitialized();
 
-    const details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        'vyoma_ai_messages',
-        'Vyoma AI Messages',
-        channelDescription: 'AI-generated reminders and proactive nudges',
-        importance: Importance.high,
-        priority: Priority.high,
-      ),
+    final channel = title.startsWith('Vyoma v')
+        ? const AndroidNotificationDetails(
+            'vyoma_app_updates',
+            'Vyoma updates',
+            channelDescription: 'New app version announcements',
+            importance: Importance.high,
+            priority: Priority.high,
+          )
+        : const AndroidNotificationDetails(
+            'vyoma_ai_messages',
+            'Vyoma AI Messages',
+            channelDescription: 'AI-generated reminders and proactive nudges',
+            importance: Importance.high,
+            priority: Priority.high,
+          );
+
+    final details = NotificationDetails(
+      android: channel,
       iOS: DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,

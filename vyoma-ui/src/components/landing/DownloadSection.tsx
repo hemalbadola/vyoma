@@ -1,4 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type MouseEvent } from 'react'
+import {
+  fetchDownloadStats,
+  formatDownloadCount,
+  trackAndOpenApkDownload,
+  type DownloadStats,
+} from '../../lib/downloadStats'
 import {
   fetchReleaseManifest,
   manifestAppVersion,
@@ -15,8 +21,11 @@ const PLATFORM_HINT: Record<PlatformId, string> = {
   macos: 'Apple Silicon & Intel',
 }
 
+const showDownloadStats = import.meta.env.VITE_SHOW_DOWNLOAD_STATS !== 'false'
+
 export default function DownloadSection() {
   const [manifest, setManifest] = useState<ReleaseManifest | null>(null)
+  const [stats, setStats] = useState<DownloadStats | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -35,8 +44,27 @@ export default function DownloadSection() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!showDownloadStats) return
+    let cancelled = false
+    fetchDownloadStats()
+      .then((data) => {
+        if (!cancelled) setStats(data)
+      })
+      .catch(() => {
+        if (!cancelled) setStats({ android: 0, updatedAt: null })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const latestApp = manifest ? manifestAppVersion(manifest) : SITE_BUILD_VERSION
-  const updateAvailable = false
+
+  const handleAndroidDownload = (url: string) => (e: MouseEvent) => {
+    e.preventDefault()
+    void trackAndOpenApkDownload(url)
+  }
 
   return (
     <section className="content-section vyoma-download-section" aria-labelledby="download-heading">
@@ -49,9 +77,10 @@ export default function DownloadSection() {
           Latest app release <strong className="accent-gold">v{latestApp}</strong>
           {manifest?.releasedAt ? ` · ${manifest.releasedAt}` : ''}
         </p>
-        {updateAvailable && (
-          <p className="vyoma-update-banner" role="status">
-            A newer version (v{manifest!.version}) is available — refresh or download the latest build below.
+        {showDownloadStats && stats != null && (
+          <p className="vyoma-download-stats" role="status">
+            <span className="vyoma-download-stats__value">{formatDownloadCount(stats.android)}</span>
+            {' '}total APK downloads from vyomai.app
           </p>
         )}
         {manifest?.releaseNotes && (
@@ -72,12 +101,25 @@ export default function DownloadSection() {
               <span className="vyoma-download-card__platform">{label}</span>
               <span className="vyoma-download-card__hint">{PLATFORM_HINT[id]}</span>
               {available ? (
-                <a href={url} className="vyoma-download-btn" download={id === 'android' ? true : undefined}>
-                  Download
-                  <span className="vyoma-download-btn__arrow" aria-hidden="true">
-                    →
-                  </span>
-                </a>
+                id === 'android' ? (
+                  <a
+                    href={url}
+                    className="vyoma-download-btn"
+                    onClick={handleAndroidDownload(url)}
+                  >
+                    Download
+                    <span className="vyoma-download-btn__arrow" aria-hidden="true">
+                      →
+                    </span>
+                  </a>
+                ) : (
+                  <a href={url} className="vyoma-download-btn" download>
+                    Download
+                    <span className="vyoma-download-btn__arrow" aria-hidden="true">
+                      →
+                    </span>
+                  </a>
+                )
               ) : (
                 <span className="vyoma-download-soon">Coming soon</span>
               )}
@@ -87,8 +129,7 @@ export default function DownloadSection() {
       </div>
 
       <p className="vyoma-download-footnote">
-        To publish a new build: update <code>vyoma-ui/public/releases.json</code>, upload installers to Hosting or
-        GitHub Releases, then redeploy.
+        Every push to <code>main</code> builds a new APK and updates this page automatically.
       </p>
     </section>
   )

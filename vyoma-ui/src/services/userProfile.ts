@@ -31,6 +31,9 @@ export function mapUserProfile(uid: string, data: DocumentData): VyomaUserProfil
     timezone: String(data.timezone ?? 'UTC'),
     activeTasks: Array.isArray(data.activeTasks) ? data.activeTasks.map(String) : [],
     lastSeenAt: tsToDate(data.lastSeenAt),
+    subscriptionPlan: data.subscriptionPlan ? String(data.subscriptionPlan) : null,
+    subscriptionStatus: data.subscriptionStatus ? String(data.subscriptionStatus) : null,
+    subscriptionExpiresAt: tsToDate(data.subscriptionExpiresAt),
   }
 }
 

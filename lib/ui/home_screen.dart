@@ -22,6 +22,8 @@ import 'screens/settings_hub_screen.dart';
 import 'screens/notifications_screen.dart';
 import '../core/user_service.dart';
 import '../core/update_service.dart';
+import '../core/services/app_update_listener.dart';
+import '../core/services/app_update_messaging.dart';
 import '../core/telemetry_service.dart';
 import '../tutorial/tutorial_controller.dart';
 import '../tutorial/tutorial_keys.dart';
@@ -48,6 +50,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _buildTick = 0;
 
   TutorialController? _tutorialController;
+  AppUpdateListener? _appUpdateListener;
 
   final List<Widget> _tabs = [
     const MissionTab(),
@@ -137,12 +140,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _tutorialListener();
       await BackgroundAgentEngine.initialize();
       if (!mounted) return;
+      if (!mounted) return;
       await UpdateService.checkForUpdates(context, force: true);
+      if (!mounted) return;
+      final notifications = context.read<NotificationService>();
+      _appUpdateListener = AppUpdateListener(notifications)
+        ..attachHostContext(context)
+        ..start();
+      await AppUpdateMessaging(notifications).start();
     });
   }
 
   @override
   void dispose() {
+    _appUpdateListener?.dispose();
     _tutorialController?.removeListener(_tutorialListener);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();

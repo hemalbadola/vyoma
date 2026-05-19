@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { auth } from '../../firebase'
 import { useAuth } from '../../contexts/AuthContext'
 import { redeemCoupon } from '../../services/coupon'
 import { createOrder, openRazorpayCheckout, verifyPayment } from '../../services/razorpay'
@@ -52,6 +53,7 @@ export default function PaymentModal({ plan, onClose, onSuccess }: PaymentModalP
           setError(null)
           try {
             await verifyPayment(response, authToken)
+            await auth.currentUser?.getIdToken(true)
             setSuccess(true)
             onSuccess?.(plan)
           } catch (err) {
@@ -87,6 +89,7 @@ export default function PaymentModal({ plan, onClose, onSuccess }: PaymentModalP
     try {
       const authToken = await getApiToken()
       const result = await redeemCoupon(couponCode, authToken)
+      await auth.currentUser?.getIdToken(true)
       setSuccess(true)
       setError(null)
       if (result.subscriptionExpiresAt) setCouponExpiry(result.subscriptionExpiresAt)
