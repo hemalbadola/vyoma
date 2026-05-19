@@ -40,3 +40,11 @@ base64 -i vyoma-ui/.env.production | gh secret set FIREBASE_WEB_ENV_B64 --repo h
 3. Rotate Heroku / Razorpay / LLM keys if those were ever committed.
 
 Public repo: assume anything that was committed is known; rotate client keys if unsure.
+
+## GitHub Releases / APK
+
+Every APK includes **Firebase client** config (same as `firebase_options.dart`). That is normal and not the same as server API keys (NVIDIA, Gemini, Razorpay secret), which are only on Heroku.
+
+CI builds `google-services.json` from `GOOGLE_SERVICES_JSON_B64` — never from the public repo after the security fix.
+
+To remove a bad release: `gh release delete v1.11.2-build.N -y --repo hemalbadola/vyoma`

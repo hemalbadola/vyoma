@@ -92,6 +92,10 @@ jobs:
           APK="build/app/outputs/flutter-apk/app-release.apk"
           test -f "$APK"
           cp "$APK" /tmp/vyoma.apk
+          # Re-runs reuse the same tag (GITHUB_RUN_NUMBER); replace existing release.
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release delete "$TAG" --repo "${{ github.repository }}" -y --cleanup-tag
+          fi
           gh release create "$TAG" /tmp/vyoma.apk \
             --title "Vyoma ${{ steps.rel.outputs.display_version }}" \
             --notes "${{ steps.notes.outputs.body }}" \

@@ -14,8 +14,10 @@ if (!m) throw new Error('Could not parse pubspec version')
 
 const semver = m[1]
 const pubspecBuild = parseInt(m[2] ?? '0', 10)
+// RUN_NUMBER increases per workflow; RUN_ATTEMPT >1 on re-runs (same tag replaced in publish step).
 const runBuild = parseInt(process.env.GITHUB_RUN_NUMBER ?? '0', 10)
-const buildNumber = Math.max(pubspecBuild, runBuild, 1)
+const runAttempt = parseInt(process.env.GITHUB_RUN_ATTEMPT ?? '1', 10)
+const buildNumber = Math.max(pubspecBuild, runBuild + runAttempt - 1, 1)
 const releaseTag = `v${semver}-build.${buildNumber}`
 const displayVersion = `${semver}+${buildNumber}`
 
