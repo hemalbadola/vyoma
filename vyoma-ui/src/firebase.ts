@@ -2,14 +2,22 @@ import { initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
 
-/** Same Firebase project as the Flutter app (`vyoma-in`). */
+/** Firebase web client config — set via vyoma-ui/.env (see .env.example). Not secret, but keep out of git. */
+function requireEnv(name: string): string {
+  const value = (import.meta.env[name] as string | undefined)?.trim()
+  if (!value) {
+    throw new Error(`Missing ${name}. Copy vyoma-ui/.env.example to vyoma-ui/.env and fill Firebase web config.`)
+  }
+  return value
+}
+
 const firebaseConfig = {
-  apiKey: 'AIzaSyD2RYGwSOJZ6xTkLtr2K1ErUDyzn7bs5cM',
-  authDomain: 'vyoma-in.firebaseapp.com',
-  projectId: 'vyoma-in',
-  storageBucket: 'vyoma-in.firebasestorage.app',
-  messagingSenderId: '126666832937',
-  appId: '1:126666832937:web:8adc6251dd8793fb053038',
+  apiKey: requireEnv('VITE_FIREBASE_API_KEY'),
+  authDomain: requireEnv('VITE_FIREBASE_AUTH_DOMAIN'),
+  projectId: requireEnv('VITE_FIREBASE_PROJECT_ID'),
+  storageBucket: requireEnv('VITE_FIREBASE_STORAGE_BUCKET'),
+  messagingSenderId: requireEnv('VITE_FIREBASE_MESSAGING_SENDER_ID'),
+  appId: requireEnv('VITE_FIREBASE_APP_ID'),
 }
 
 export const app = initializeApp(firebaseConfig)

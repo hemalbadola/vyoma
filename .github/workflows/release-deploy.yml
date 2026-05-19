@@ -1,9 +1,10 @@
 # Every push to main → build APK, GitHub Release, update vyomai.app downloads.
 # APK on GitHub Releases (Firebase Spark cannot host binaries).
 #
-# Required GitHub secrets:
+# Required GitHub secrets (never commit these files):
 #   FIREBASE_TOKEN — hosting + firestore rules deploy
-#   GOOGLE_SERVICES_JSON — full contents of android/app/google-services.json
+#   GOOGLE_SERVICES_JSON_B64 — base64 of android/app/google-services.json
+#   FIREBASE_WEB_ENV_B64 — base64 of vyoma-ui/.env.production (Firebase web + Razorpay public key)
 # Optional:
 #   FIREBASE_SERVICE_ACCOUNT — updates config/app_version for in-app update prompts
 
@@ -57,14 +58,11 @@ jobs:
         env:
           GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
         run: |
-          if [ -f android/app/google-services.json ]; then
-            echo "Using google-services.json from repository"
-          elif [ -n "$GOOGLE_SERVICES_JSON_B64" ]; then
-            echo "$GOOGLE_SERVICES_JSON_B64" | base64 -d > android/app/google-services.json
-          else
-            echo "::error::Add android/app/google-services.json to the repo OR set GitHub secret GOOGLE_SERVICES_JSON_B64 (base64 of that file)"
+          if [ -z "$GOOGLE_SERVICES_JSON_B64" ]; then
+            echo "::error::Set GitHub secret GOOGLE_SERVICES_JSON_B64 (base64 -i android/app/google-services.json)"
             exit 1
           fi
+          echo "$GOOGLE_SERVICES_JSON_B64" | base64 -d > android/app/google-services.json
           test -s android/app/google-services.json
           python3 -c "import json; json.load(open('android/app/google-services.json'))"
 
@@ -104,6 +102,17 @@ jobs:
           node-version: '20'
           cache: npm
           cache-dependency-path: vyoma-ui/package-lock.json
+
+      - name: Configure web build env (.env.production)
+        env:
+          FIREBASE_WEB_ENV_B64: ${{ secrets.FIREBASE_WEB_ENV_B64 }}
+        run: |
+          if [ -z "$FIREBASE_WEB_ENV_B64" ]; then
+            echo "::error::Set GitHub secret FIREBASE_WEB_ENV_B64 (base64 of vyoma-ui/.env.production)"
+            exit 1
+          fi
+          echo "$FIREBASE_WEB_ENV_B64" | base64 -d > vyoma-ui/.env.production
+          test -s vyoma-ui/.env.production
 
       - name: Build web
         run: npm ci && npm run build
