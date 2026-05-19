@@ -10,6 +10,7 @@ node_modules/
 !vyoma-ui/tsconfig.node.json
 !vyoma-ui/src/config/subscription_plans.json
 !firestore.rules
+!firestore.indexes.json
 !firebase.json
 !ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json
 !macos/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json
